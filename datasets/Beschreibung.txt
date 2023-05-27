@@ -1,0 +1,22 @@
+###########################################################
+
+data.pkl enthält den ursprünglichen Datensatz mit ca. X Prozent (X=10 in crashes; X=20 in australian) der Attributwerte zufällig gelöscht. Die gelöschten 
+Werte wurden durch np.nan ersätzt.
+
+saved_pdfs.pkl enthält die gespeichterten pdfs in folgendem Format: Ein Dict indem jeder Key für eine Instanz steht
+und deren Value ein Tupel (pdf, cert) enthält.(Manche Instanzen kommen also nicht vor, wenn ihnen kein Wert gelöscht wurde)
+
+Dabei ist cert wiederum eine Liste an Werten bei denen immer der selbe
+Wert imputiert wurde (z.B. bei diskreten Attributen) und die pdf also in dieser Dimension "konstant" wäre. Die Werte in der cert Liste haben das Format:
+(i,Wert), wobei i bedeutet, dass der Wert in der i-ten gelöschten Zeile konstant ist und zwar immer "Wert" liefert.
+
+Oft kann man cert ignorieren, da sie leer ist (z.B. im gesamten Datensatz crashes, da er nur stetige Attribute hat).
+
+pdf ist nun die Verteilung der restlichen gelöschten Einträge bei denen nicht trivial imputiert wurde.
+Ausnahme: Sind alle unsicheren Dimensionen trivial imputiert worden (also in cert), so steht hier stattdessend der string "no uncertainty"
+
+###########################################################
+
+Datasets:
+Australian Credit Approval; Infos und Beschreibung: https://archive.ics.uci.edu/ml/datasets/statlog+(australian+credit+approval)
+Climate Model Simulation Crashes Data Set, https://archive.ics.uci.edu/ml/datasets/climate+model+simulation+crashes
