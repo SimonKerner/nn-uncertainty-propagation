@@ -144,7 +144,7 @@ def create_metrics(y_true, predictions):
 
     # Confusion Matrix
     cm = confusion_matrix(y_true, predictions)
-    display_labels = ['Rejected', 'Accepted']
+    display_labels = ['Rejected/Failure', 'Accepted/Success']
     display = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=display_labels)
     display.plot()
 

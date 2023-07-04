@@ -35,17 +35,24 @@ from scipy.stats import gaussian_kde
 
 
 ##########################################################################################################################
-# constant settings and paths
+# set important paths
 ##########################################################################################################################
-
-#choose working dataset: "australian" or "climate_simulation"
-dataset = "climate_simulation" 
 
 
 # set path to different folders
 dataset_path = os.path.join(os.getcwd(), 'datasets')
 image_path = os.path.join(os.getcwd(), 'images')
-models = os.path.join(os.getcwd(), 'models')
+model_path = os.path.join(os.getcwd(), 'models')
+
+
+
+
+##########################################################################################################################
+# set constant settings
+##########################################################################################################################
+
+#choose working dataset: "australian" or "climate_simulation"
+dataset = "climate_simulation" 
 
 
 # set random state
@@ -55,8 +62,8 @@ np.random.RandomState(RANDOM_STATE)
 tf.random.set_seed(RANDOM_STATE)
 
 
-# constans for further processing
-standardize_data = True
+# further settings
+standardize_data = False
 visiualize_data = False
 
 # train or load model
@@ -64,7 +71,7 @@ train_model = False
 load_model = True
 
 
-get_prediction_metrics = True
+get_prediction_metrics = False
 
 
 
@@ -90,6 +97,11 @@ if dataset == "australian":
     
     # rename columns
     DATAFRAME.columns = column_names
+    
+    # set feature_specs
+    continuous_features = ["Age", "Mean time at adresses", "Mean time with employers",
+                           "Time with bank", "Monthly housing expense", "Savings account balance"]
+
 
 
 # load data for climate modal simulation crashes dataset
@@ -102,6 +114,8 @@ if dataset == "climate_simulation":
     DATAFRAME = DATAFRAME.iloc[:, 2:]
 
     column_names = DATAFRAME.columns.to_list()
+    
+    continuous_features = column_names[:-1]
 
 
 
@@ -129,6 +143,7 @@ if standardize_data:
 
 
 if visiualize_data:
+    """
     # plot Scatter matrix of dataframe
     sns.set_style("whitegrid")
     sns_plot = sns.PairGrid(DATAFRAME, diag_sharey=False, corner=False)
@@ -136,7 +151,7 @@ if visiualize_data:
     sns_plot.map_lower(sns.scatterplot, s=15)
     sns_plot.map_diag(sns.kdeplot, fill=True)
     plt.savefig(os.path.join(image_path, 'dataset_plot.png'))
-
+    
 
     # Density and Histplot for exploration
     distplot_data = DATAFRAME.melt(var_name='column_names')
@@ -144,7 +159,7 @@ if visiualize_data:
     plt.show()
     distplot_plot.savefig(os.path.join(image_path, 'distplot_plot.png'))
     plt.close()
-    
+    """
     
     # Plotting combined distribution using box plots
     DATAFRAME.boxplot(column=column_names, figsize=(12, 6))
@@ -154,7 +169,7 @@ if visiualize_data:
 
     
     # Plotting combined distribution using histograms
-    DATAFRAME.hist(column=column_names, bins=10, figsize=(12, 10))
+    DATAFRAME.hist(column=column_names, bins=15, figsize=(12, 10))
     plt.tight_layout()
     plt.show()
     
@@ -214,43 +229,6 @@ if visiualize_data:
     plt.tight_layout()
     plt.show()
     
-    
-    """
-    # Calculate the entropy for each feature
-    entropies = []
-    target_column = "0 - Reject / 1 - Accept"
-    target_counts = DATAFRAME[target_column].value_counts()
-    total_samples = target_counts.sum()
-
-    for column in column_names:
-        feature_entropy = 0
-        feature_counts = DATAFRAME.groupby([column, target_column]).size()
-        unique_values = DATAFRAME[column].unique()
-
-        for value in unique_values:
-            value_counts = feature_counts[value]
-            value_total = value_counts.sum()
-            value_probabilities = value_counts / value_total
-            value_entropy = -np.sum(value_probabilities * np.log2(value_probabilities))
-            feature_entropy += (value_total / total_samples) * value_entropy
-
-        entropies.append(feature_entropy)
-
-    # Find the index of the feature with the highest entropy
-    most_uncertain_feature_index = np.argmax(entropies)
-    most_uncertain_feature = column_names[most_uncertain_feature_index]
-
-    print("Most Uncertain Feature:", most_uncertain_feature)
-
-    # Plot the entropies
-    plt.figure(figsize=(6, 10))
-    plt.barh(column_names, entropies)
-    plt.xlabel("Entropy")
-    plt.ylabel("Features")
-    plt.title("Entropy of Features")
-    plt.show()
-    """
-
 
 
 
@@ -259,11 +237,11 @@ if visiualize_data:
 ##########################################################################################################################
 
 
-X = DATAFRAME.iloc[:, 0:-1]
-y = DATAFRAME[column_names[-1]]
+X_complete = DATAFRAME.iloc[:, 0:-1]
+y_complete = DATAFRAME[column_names[-1]]
 
 
-X_train, X_test, y_train,  y_test = train_test_split(X, y, test_size=0.25, random_state=RANDOM_STATE)
+X_complete_train, X_complete_test, y_complete_train,  y_complete_test = train_test_split(X_complete, y_complete, test_size=0.25, random_state=RANDOM_STATE)
 
 
 
@@ -275,7 +253,7 @@ X_train, X_test, y_train,  y_test = train_test_split(X, y, test_size=0.25, rando
 
 if train_model:
     # layers of the network
-    inputs = keras.Input(shape=(X.shape[1],))
+    inputs = keras.Input(shape=(X_complete.shape[1],))
     x = layers.Dense(32, activation='relu')(inputs)
     x = layers.Dense(16, activation='relu')(x)
     outputs = layers.Dense(1, activation='sigmoid')(x)
@@ -291,7 +269,7 @@ if train_model:
     
     
     # fit model
-    model_history = model.fit(X_train, y_train, validation_data=[X_test, y_test], batch_size=15, epochs=50)
+    model_history = model.fit(X_complete_train, y_complete_train, validation_data=[X_complete_test, y_complete_test], batch_size=15, epochs=50)
     
     
     # plot model
@@ -299,7 +277,7 @@ if train_model:
 
 
     # save new model
-    model.save(os.path.join(models, dataset + "_model"))
+    model.save(os.path.join(model_path, dataset + "_model"))
 
 
 
@@ -310,7 +288,7 @@ if train_model:
 
 
 if load_model:
-    model = keras.models.load_model(os.path.join(models, dataset + "_model"))
+    model = keras.models.load_model(os.path.join(model_path, dataset + "_model"))
     model.summary()
 
 
@@ -321,25 +299,24 @@ if load_model:
 ##########################################################################################################################
 
 
-standard_predictions_sig = model.predict(X)
-standard_predictions_scalar = (standard_predictions_sig>0.5).astype("int32")
+y_complete_hat = model.predict(X_complete)
+y_complete_hat_labels = (y_complete_hat>0.5).astype("int32")
 
 
 if get_prediction_metrics:
     
-    utils.create_metrics(y, standard_predictions_scalar)
+    utils.create_metrics(y_complete, y_complete_hat_labels)
 
 
 
 
 ##########################################################################################################################
-# add missing data
+# remove data in original dataframe
 ##########################################################################################################################
-#TODO
-sys.exit()
+
 
 # create new Dataset with random missing values
-DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :14], 0.1, RANDOM_STATE) 
+DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :-1], miss_rate=0.9, random_seed=RANDOM_STATE) 
 DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME.iloc[:,-1], left_index=True, right_index=True)
 
 
@@ -370,104 +347,57 @@ kernel_types = {
 """
 
 
-Imputed_df = utils.kde_Imputer(DATAFRAME_MISS, bandwidth=0.1)
+sim_length = 20
+sim_history = []    # with prdictions on the x-axis
 
-#neg = (Imputed_df<0).sum()
+for i in range(sim_length):
+    
+    DATAFRAME_UNCERTAIN = utils.kde_Imputer(DATAFRAME_MISS, bandwidth=0.1)
+    
+    X_uncertain = DATAFRAME_UNCERTAIN.drop("outcome", axis=1)
+    y_uncertain = DATAFRAME_UNCERTAIN["outcome"]
+    
+    X_uncertain = X_uncertain.values
+    y_uncertain = y_uncertain.values
+
+    # Get the predicted probabilities for the imputed dataset
+    y_uncertain_hat = model.predict(X_uncertain).flatten()
+
+    sim_history.append(y_uncertain_hat)
 
 
+# change sim_history to dataframe for better inspection
+sim_history_df = pd.DataFrame(data=sim_history)
+sim_history_df_describtion = sim_history_df.describe()
+    
 
 
 
 """
-import numpy as np
-import pandas as pd
-import tensorflow as tf
-
-# Load the complete dataset and the KDE imputed dataset
-complete_data = DATAFRAME
-imputed_data = Imputed_df
-
-# Split the data into features (X) and target variable (y)
-X_complete = complete_data.drop("0 - Reject / 1 - Accept", axis=1)
-y_complete = complete_data["0 - Reject / 1 - Accept"]
-
-X_imputed = imputed_data.drop("0 - Reject / 1 - Accept", axis=1)
-y_imputed = imputed_data["0 - Reject / 1 - Accept"]
-
-# Convert the data to numpy arrays
-X_complete = X_complete.values
-y_complete = y_complete.values
-
-X_imputed = X_imputed.values
-y_imputed = y_imputed.values
-
-# Define the architecture of the sequential feed-forward network
-model = tf.keras.models.Sequential([
-    tf.keras.layers.Dense(64, activation='relu', input_shape=(X_complete.shape[1],)),
-    tf.keras.layers.Dense(64, activation='relu'),
-    tf.keras.layers.Dense(1, activation='sigmoid')
-])
-
-# Compile the model with an appropriate loss function and optimizer
-model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
-
-# Train the model on the complete dataset
-model.fit(X_complete, y_complete, epochs=10, batch_size=32, verbose=1)
-
-# Evaluate the model on the imputed dataset
-loss, accuracy = model.evaluate(X_imputed, y_imputed, verbose=1)
-print("Accuracy on the imputed dataset:", accuracy)
-
-# Get the predicted probabilities for the complete dataset
-predicted_probabilities_complete = model.predict(X_complete)
-
-# Get the predicted probabilities for the imputed dataset
-predicted_probabilities = model.predict(X_imputed)
-
-# Calculate the uncertainty measures (e.g., variance and entropy)
-uncertainty_variance = np.var(predicted_probabilities)
-uncertainty_entropy = -np.sum(predicted_probabilities * np.log2(predicted_probabilities))
-
-print("Uncertainty variance:", uncertainty_variance)
-print("Uncertainty entropy:", uncertainty_entropy)
+# get first 10 predictions
 
 
-# Create a histogram of predicted probabilities for the complete dataset
-plt.figure(figsize=(8, 6))
-plt.hist(predicted_probabilities_complete, bins=20, alpha=0.5, label='Complete Dataset')
-
-# Create a histogram of predicted probabilities for the imputed dataset
-plt.hist(predicted_probabilities, bins=20, alpha=0.5, label='KDE Imputed Dataset')
-
-plt.xlabel('Predicted Probability')
-plt.ylabel('Frequency')
-plt.title('Output Distribution Comparison')
-plt.legend()
-plt.show()
-
-
-
-
-# Create a KDE plot for the predicted probabilities of the complete dataset
-sns.kdeplot(predicted_probabilities_complete.flatten(), label='Complete Dataset')
-
-# Create a KDE plot for the predicted probabilities of the imputed dataset
-sns.kdeplot(predicted_probabilities.flatten(), label='KDE Imputed Dataset')
-
-plt.xlabel('Predicted Probability')
-plt.ylabel('Density')
-plt.title('Output Distribution Comparison')
-plt.legend()
+# visualize some prediction with histograms
+sim_history_df = sim_history_df.iloc[:, :5]
+sim_history_df.boxplot(column=sim_history_df.columns.to_list(), figsize=(12, 6))
+plt.tight_layout()
 plt.show()
 """
+sys.exit()
+
+
+
+
+
+'''
 
 
 from scipy.stats import norm, beta  # For fitting parametric distributions
 from sklearn.neighbors import KernelDensity  # For non-parametric kernel density estimation
-import matplotlib.pyplot as plt  # For visualization
 
 
-def generate_input_samples(data, column_names, continuous_features, nominal_features, plot_distributions=True):
+
+def generate_input_samples(data, column_names, continuous_features, plot_distributions=True):
     """
     Generate input samples according to the desired probability distributions.
 
@@ -475,7 +405,6 @@ def generate_input_samples(data, column_names, continuous_features, nominal_feat
         data (pandas.DataFrame): The dataset containing the values for each attribute.
         column_names (list): List of column names in the dataset.
         continuous_features (list): List of column names for continuous features.
-        nominal_features (list): List of column names for nominal features.
 
     Returns:
         numpy.ndarray: Generated input samples.
@@ -518,23 +447,11 @@ def generate_input_samples(data, column_names, continuous_features, nominal_feat
 
 
 
-# Load your dataset into a pandas DataFrame
-data = Imputed_df
 
-# Define the necessary parameters
-column_names = ["Sex", "Age", "Mean time at adresses", "Home status", "Current occupation",
-                "Current job status", "Mean time with employers", "Other investments",
-                "Bank account", "Time with bank", "Liability reference", "Account reference",
-                "Monthly housing expense", "Savings account balance"]
 
-continuous_features = ["Age", "Mean time at adresses", "Mean time with employers",
-                       "Time with bank", "Monthly housing expense", "Savings account balance"]
-
-nominal_features = ["Sex", "Home status", "Current occupation", "Current job status",
-                    "Other investments", "Bank account", "Liability reference", "Account reference"]
 
 # Generate input samples
-input_samples = generate_input_samples(data, column_names, continuous_features, nominal_features)
+input_samples = generate_input_samples(DATAFRAME_UNCERTAIN, column_names, continuous_features)
 
 
 # Calculate the output probabilities and output labels
@@ -606,3 +523,4 @@ plt.legend()
 plt.show()
 
 
+'''
