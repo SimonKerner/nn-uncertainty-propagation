@@ -52,7 +52,7 @@ model_path = os.path.join(os.getcwd(), 'models')
 ##########################################################################################################################
 
 #choose working dataset: "australian" or "climate_simulation"
-dataset = "climate_simulation" 
+dataset = "australian" 
 
 
 # set random state
@@ -63,7 +63,7 @@ tf.random.set_seed(RANDOM_STATE)
 
 
 # further settings
-standardize_data = False
+standardize_data = True
 visiualize_data = False
 
 # train or load model
@@ -316,7 +316,7 @@ if get_prediction_metrics:
 
 
 # create new Dataset with random missing values
-DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :-1], miss_rate=0.9, random_seed=RANDOM_STATE) 
+DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :-1], miss_rate=0.1, random_seed=RANDOM_STATE) 
 DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME.iloc[:,-1], left_index=True, right_index=True)
 
 
@@ -325,6 +325,51 @@ DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME.iloc[:,-1], left_index=True, rig
 ##########################################################################################################################
 # sample Kernel Density Estimate over missing dataset
 ##########################################################################################################################
+
+
+sim_length = 500
+sim_history = []    # with prdictions on the x-axis
+
+for i in range(sim_length):
+    
+    DATAFRAME_UNCERTAIN = utils.kde_Imputer(DATAFRAME_MISS, kernel="gaussian", bandwidth="scott")
+    
+    X_uncertain = DATAFRAME_UNCERTAIN.drop(column_names[-1], axis=1)
+    y_uncertain = DATAFRAME_UNCERTAIN[column_names[-1]]
+    
+    X_uncertain = X_uncertain.values
+    y_uncertain = y_uncertain.values
+
+    # Get the predicted probabilities for the imputed dataset
+    y_uncertain_hat = model.predict(X_uncertain).flatten()
+
+    sim_history.append(y_uncertain_hat)
+
+
+# change sim_history to dataframe for better inspection
+sim_history_df = pd.DataFrame(data=sim_history)
+sim_history_df_describtion = sim_history_df.describe()
+
+# summarize metrics
+sim_history_mean = sim_history_df_describtion.loc["mean"]
+
+# get uncertain kde plots
+sns.kdeplot(y_complete_hat)
+
+for i in range(sim_length):
+    sns.kdeplot(sim_history_df.loc[i], alpha=.5, linewidth=0.1, color = "grey")
+
+sns.kdeplot(sim_history_mean)
+plt.tight_layout()
+plt.show()
+
+sns.histplot(sim_history_mean, bins=50)
+plt.tight_layout()
+plt.show()
+
+sys.exit()
+
+
 
 
 """
@@ -345,46 +390,6 @@ kernel_types = {
     "Savings account balance": "gaussian"
 }
 """
-
-
-sim_length = 20
-sim_history = []    # with prdictions on the x-axis
-
-for i in range(sim_length):
-    
-    DATAFRAME_UNCERTAIN = utils.kde_Imputer(DATAFRAME_MISS, bandwidth=0.1)
-    
-    X_uncertain = DATAFRAME_UNCERTAIN.drop("outcome", axis=1)
-    y_uncertain = DATAFRAME_UNCERTAIN["outcome"]
-    
-    X_uncertain = X_uncertain.values
-    y_uncertain = y_uncertain.values
-
-    # Get the predicted probabilities for the imputed dataset
-    y_uncertain_hat = model.predict(X_uncertain).flatten()
-
-    sim_history.append(y_uncertain_hat)
-
-
-# change sim_history to dataframe for better inspection
-sim_history_df = pd.DataFrame(data=sim_history)
-sim_history_df_describtion = sim_history_df.describe()
-    
-
-
-
-"""
-# get first 10 predictions
-
-
-# visualize some prediction with histograms
-sim_history_df = sim_history_df.iloc[:, :5]
-sim_history_df.boxplot(column=sim_history_df.columns.to_list(), figsize=(12, 6))
-plt.tight_layout()
-plt.show()
-"""
-sys.exit()
-
 
 
 
