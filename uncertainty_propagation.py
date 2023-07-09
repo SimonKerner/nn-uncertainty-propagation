@@ -17,6 +17,7 @@ import pandas as pd
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+import seaborn.objects as so
 
 import tensorflow as tf
 from tensorflow import keras
@@ -28,6 +29,10 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 from sklearn.neighbors import KernelDensity
+
+from sklearn.impute import SimpleImputer
+from sklearn.impute import KNNImputer
+#from sklearn.impute import IterativeImputer
 
 from scipy.stats import gaussian_kde
 
@@ -51,7 +56,7 @@ model_path = os.path.join(os.getcwd(), 'models')
 # set constant settings
 ##########################################################################################################################
 
-#choose working dataset: "australian" or "climate_simulation"
+#choose working dataset: "australian" or "climate_simulation", "predict+students+dropout+and+academic+success", "wdbc" -> Breast Cancer Wisconsin (Diagnostic)
 dataset = "australian" 
 
 
@@ -70,9 +75,12 @@ visiualize_data = False
 train_model = False
 load_model = True
 
+get_true_prediction_metrics = False
 
-get_prediction_metrics = False
 
+
+bw_method='scott', 
+bw_adjust=1,
 
 
 
@@ -98,9 +106,7 @@ if dataset == "australian":
     # rename columns
     DATAFRAME.columns = column_names
     
-    # set feature_specs
-    continuous_features = ["Age", "Mean time at adresses", "Mean time with employers",
-                           "Time with bank", "Monthly housing expense", "Savings account balance"]
+
 
 
 
@@ -115,7 +121,40 @@ if dataset == "climate_simulation":
 
     column_names = DATAFRAME.columns.to_list()
     
-    continuous_features = column_names[:-1]
+    
+    
+    
+# load data for climate modal simulation crashes dataset
+if dataset == "wdbc":
+    
+    with open(os.path.join(dataset_path, dataset + ".dat"), 'rb') as DATAFRAME:
+        DATAFRAME = pd.read_table(DATAFRAME, sep=",", engine='python', header = None)
+    
+    # drop the first 
+    y_complete = DATAFRAME.iloc[:,1].copy()
+    #y_complete = y_complete.rename("Outcome")
+    DATAFRAME = DATAFRAME.iloc[:, 2:].copy()
+    
+    DATAFRAME = DATAFRAME.merge(y_complete, left_index=True, right_index=True)
+    
+    target_names = (['B', 'M'], [0, 1])
+    DATAFRAME.iloc[:,-1].replace(target_names[0], target_names[1], inplace=True)
+    
+    column_names = DATAFRAME.columns.to_list()
+
+
+
+
+# load data for predict+students+dropout+and+academic+success dataset
+if dataset == "predict+students+dropout+and+academic+success":
+    
+    DATAFRAME = pd.read_csv(os.path.join(dataset_path, dataset + ".csv"), sep=";")
+    
+    target_names = (['Dropout', 'Enrolled' ,'Graduate'], [2, 0, 1])
+    
+    DATAFRAME['Target'].replace(target_names[0], target_names[1], inplace=True)
+    
+    column_names = DATAFRAME.columns.to_list()
 
 
 
@@ -253,14 +292,12 @@ X_complete_train, X_complete_test, y_complete_train,  y_complete_test = train_te
 
 if train_model:
     # layers of the network
-    inputs = keras.Input(shape=(X_complete.shape[1],))
+    inputs = keras.Input(shape=(X_complete.shape[1]))
     x = layers.Dense(32, activation='relu')(inputs)
     x = layers.Dense(16, activation='relu')(x)
     outputs = layers.Dense(1, activation='sigmoid')(x)
-    
     # build model
     model = keras.Model(inputs=inputs, outputs=outputs)
-    
     
     # compile model
     model.compile(optimizer=keras.optimizers.Adam(),
@@ -303,9 +340,10 @@ y_complete_hat = model.predict(X_complete)
 y_complete_hat_labels = (y_complete_hat>0.5).astype("int32")
 
 
-if get_prediction_metrics:
+if get_true_prediction_metrics:
     
     utils.create_metrics(y_complete, y_complete_hat_labels)
+    plt.show()
 
 
 
@@ -316,7 +354,7 @@ if get_prediction_metrics:
 
 
 # create new Dataset with random missing values
-DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :-1], miss_rate=0.1, random_seed=RANDOM_STATE) 
+DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :-1], miss_rate=0.5, random_seed=RANDOM_STATE) 
 DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME.iloc[:,-1], left_index=True, right_index=True)
 
 
@@ -326,13 +364,47 @@ DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME.iloc[:,-1], left_index=True, rig
 # sample Kernel Density Estimate over missing dataset
 ##########################################################################################################################
 
+"""
+    # Monte Carlo Simulation with induced uncertainty
+"""
 
-sim_length = 500
-sim_history = []    # with prdictions on the x-axis
+# Monte Carlo Simulation Length
+sim_length = 1000
 
+"""
+DATAFRAME_MISS_LIST = []
 for i in range(sim_length):
+    DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :-1], miss_rate=0.5, random_seed=RANDOM_STATE) 
+    DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME.iloc[:,-1], left_index=True, right_index=True)
     
+    DATAFRAME_MISS_LIST.append(DATAFRAME_MISS)
+"""
+
+# following => INPUT DATAFRAMES
+sim_history_dataframes = []     # with imputed dataframes (including uncertainty)
+
+# following => OUTPUT PREDICTIONS as 
+sim_history_predictions = []    # with prdictions on the x-axis
+
+# following => OUTPUT PREDICTION as LABELS
+sim_history_prediction_labels = []
+
+
+# following => MC-Simulation
+for i in range(sim_length):
+    """
+    DATAFRAME_MISS = DATAFRAME_MISS_LIST[i]
+    """
+    # kde imputer uses --from sklearn.neighbors import KernelDensity
     DATAFRAME_UNCERTAIN = utils.kde_Imputer(DATAFRAME_MISS, kernel="gaussian", bandwidth="scott")
+
+    # SimpleImputer imputer uses strategies --mean, median, most_frequent
+    #simp_imp = SimpleImputer(strategy="median")
+    #DATAFRAME_UNCERTAIN = pd.DataFrame(simp_imp.fit_transform(DATAFRAME_MISS), columns=column_names)
+ 
+    #knn_imp = KNNImputer(n_neighbors=5)
+    #DATAFRAME_UNCERTAIN = pd.DataFrame(knn_imp.fit_transform(DATAFRAME_MISS), columns=column_names)
+
     
     X_uncertain = DATAFRAME_UNCERTAIN.drop(column_names[-1], axis=1)
     y_uncertain = DATAFRAME_UNCERTAIN[column_names[-1]]
@@ -343,189 +415,97 @@ for i in range(sim_length):
     # Get the predicted probabilities for the imputed dataset
     y_uncertain_hat = model.predict(X_uncertain).flatten()
 
-    sim_history.append(y_uncertain_hat)
+    sim_history_dataframes.append(DATAFRAME_UNCERTAIN)
+    sim_history_predictions.append(y_uncertain_hat)
+    sim_history_prediction_labels.append((y_uncertain_hat>0.5).astype("int32"))
+    
 
-
-# change sim_history to dataframe for better inspection
-sim_history_df = pd.DataFrame(data=sim_history)
-sim_history_df_describtion = sim_history_df.describe()
-
-# summarize metrics
-sim_history_mean = sim_history_df_describtion.loc["mean"]
-
-# get uncertain kde plots
-sns.kdeplot(y_complete_hat)
-
-for i in range(sim_length):
-    sns.kdeplot(sim_history_df.loc[i], alpha=.5, linewidth=0.1, color = "grey")
-
-sns.kdeplot(sim_history_mean)
-plt.tight_layout()
-plt.show()
-
-sns.histplot(sim_history_mean, bins=50)
-plt.tight_layout()
-plt.show()
-
-sys.exit()
-
-
-
-
-"""
-kernel_types = {
-    "Sex": "exponential",
-    "Age": "exponential",
-    "Mean time at addresses": "exponential",
-    "Home status": "gaussian",
-    "Current occupation": "gaussian",
-    "Current job status": "gaussian",
-    "Mean time with employers": "exponential",
-    "Other investments": "gaussian",
-    "Bank account": "gaussian",
-    "Time with bank": "gaussian",
-    "Liability reference": "exponential",
-    "Account reference": "exponential",
-    "Monthly housing expense": "gaussian",
-    "Savings account balance": "gaussian"
-}
-"""
-
-
-
-
-'''
-
-
-from scipy.stats import norm, beta  # For fitting parametric distributions
-from sklearn.neighbors import KernelDensity  # For non-parametric kernel density estimation
-
-
-
-def generate_input_samples(data, column_names, continuous_features, plot_distributions=True):
     """
-    Generate input samples according to the desired probability distributions.
-
-    Args:
-        data (pandas.DataFrame): The dataset containing the values for each attribute.
-        column_names (list): List of column names in the dataset.
-        continuous_features (list): List of column names for continuous features.
-
-    Returns:
-        numpy.ndarray: Generated input samples.
-    """
-    features = data.iloc[:, :-1].values  # Select all columns except the last as features
-
-    # Calculate distribution parameters for continuous features
-    distribution_params = {}
-    for feature in continuous_features:
-        mean = data[feature].mean()
-        std = data[feature].std()
-        distribution_params[feature] = {"mean": mean, "std": std}
-
-    # Generate input samples for each feature
-    input_samples = []
-    for feature in column_names:
-        if feature in continuous_features:
-            # Continuous feature
-            mean = distribution_params[feature]['mean']
-            std = distribution_params[feature]['std']
-            samples = np.random.normal(mean, std, size=len(features))
-        else:
-            # Nominal feature
-            categories = data[feature].unique()
-            samples = np.random.choice(categories, size=len(features), replace=True)
-        input_samples.append(samples)
+    if i % 50 == 0:    
         
-        # Plot the distribution if required
-        if plot_distributions:
-            plt.figure()
-            plt.hist(samples, bins=30)
-            plt.title(f"Distribution of {feature}")
-            plt.xlabel("Value")
-            plt.ylabel("Frequency")
-            plt.show()
-
-    # Combine all the generated samples
-    input_samples = np.column_stack(input_samples)
-    return input_samples
-
-
-
-
-
-
-# Generate input samples
-input_samples = generate_input_samples(DATAFRAME_UNCERTAIN, column_names, continuous_features)
-
-
-# Calculate the output probabilities and output labels
-output_probs = model.predict(input_samples)
-output_probs = output_probs.flatten()  # Flatten to 1D array
-output_labels = np.round(output_probs).astype(int)
-
-
-
-
-
-# Visualize the output distributions for each label
-for label in np.unique(output_labels):
-    label_probs = output_probs[output_labels == label]
-
-    # Fit Gaussian distribution to label probabilities
-    mean, std = norm.fit(label_probs)
-
-    # Visualize the distribution
-    plt.figure()
-    plt.hist(label_probs, bins=30, density=True, alpha=0.6, label=f'Label {label}')
-    x = np.linspace(0, 1, 100)
-    plt.plot(x, norm.pdf(x, mean, std), 'r-', label='Gaussian Fit')
-    plt.xlabel('Output Probabilities')
-    plt.ylabel('Density')
-    plt.legend()
-    plt.show()
-
-    # Perform kernel density estimation
-    kde = KernelDensity(bandwidth=0.05).fit(label_probs.reshape(-1, 1))
-    x = np.linspace(0, 1, 100)
-    log_density = kde.score_samples(x.reshape(-1, 1))
-    density = np.exp(log_density)
-
-    # Visualize the distribution
-    plt.figure()
-    plt.plot(x, density, label=f'Label {label}')
-    plt.xlabel('Output Probabilities')
-    plt.ylabel('Density')
-    plt.legend()
-    plt.show()
+        # change sim_history_predictions to dataframe for better inspection
+        sim_history_predictions_df = pd.DataFrame(data=sim_history_predictions)
+        # summary statistics of simulation history
+        sim_history_predictions_df_describtion = sim_history_predictions_df.describe(include="all")
+        
+        sim_history_predictions_mean = sim_history_predictions_df_describtion.loc["mean"]
+        
+        test = [y_complete_hat.flatten(), sim_history_predictions_mean]
+        
+        sns.kdeplot([test[0], test[1]], fill=True)
+        plt.tight_layout()
+        plt.show()
+    """
     
     
-# Fit Gaussian distribution to output probabilities
-mean, std = norm.fit(output_probs)
 
-# Visualize the distribution
-plt.figure()
-plt.hist(output_probs, bins=30, density=True, alpha=0.6, color='g')
-x = np.linspace(0, 1, 100)
-plt.plot(x, norm.pdf(x, mean, std), 'r-', label='Gaussian Fit')
-plt.xlabel('Output Probabilities')
-plt.ylabel('Density')
-plt.legend()
-plt.show()
+# change sim_history_predictions to dataframe for better inspection
+sim_history_predictions_df = pd.DataFrame(data=sim_history_predictions)
+# summary statistics of simulation history
+sim_history_predictions_df_describtion = sim_history_predictions_df.describe()
 
-# Perform kernel density estimation
-kde = KernelDensity(bandwidth=0.05).fit(output_probs.reshape(-1, 1))
-x = np.linspace(0, 1, 100)
-log_density = kde.score_samples(x.reshape(-1, 1))
-density = np.exp(log_density)
+sim_history_predictions_mean = sim_history_predictions_df_describtion.loc["mean"]
 
-# Visualize the distribution
-plt.figure()
-plt.plot(x, density, 'b-', label='Kernel Density Estimation')
-plt.xlabel('Output Probabilities')
-plt.ylabel('Density')
-plt.legend()
+sim_history_predictions_minus_mean = sim_history_predictions_mean - sim_history_predictions_df_describtion.loc["std"]
+sim_history_predictions_minus_mean = sim_history_predictions_minus_mean.rename("-std")
+sim_history_predictions_plus_mean = sim_history_predictions_mean + sim_history_predictions_df_describtion.loc["std"]
+sim_history_predictions_plus_mean = sim_history_predictions_plus_mean.rename("+std")
+
+
+
+#test = [y_complete_hat.flatten(), sim_history_predictions_mean, sim_history_predictions_minus_mean, sim_history_predictions_plus_mean]
+
+
+
+#for i in range(sim_length):
+    
+#    sns.kdeplot(sim_history_predictions_df.loc[i], alpha=.2, linewidth=0.4, color = "grey")
+
+
+print_results = [y_complete_hat.flatten(), sim_history_predictions_mean]
+#print_results = [sim_history_predictions_mean, sim_history_predictions_minus_mean, sim_history_predictions_plus_mean]
+ax = sns.kdeplot(print_results, common_grid=True, cumulative=False, thresh=0)
+
+#plot = so.Plot(print_results)
+#plot.add(print_results[0])
+
+#ax_l1 = ax.get_lines()[1].get_data()
+#ax_l2 = ax.get_lines()[0].get_data()
+
+#ax.fill_between(ax_l1[0], ax_l1[1], ax_l2[1], alpha=0.2)
+
+
+
+
+
+
+plt.tight_layout()
 plt.show()
 
 
-'''
+# plot histograms
+sns.histplot(print_results, thresh=None, bins=10)
+plt.tight_layout()
+plt.show()
+
+
+
+
+
+
+
+
+# used to calculate the differences between the True distrubution labels and mc labels
+simulation_summary = []
+for i in range(sim_length):
+    differences = sim_history_prediction_labels[i] == y_complete_hat_labels.flatten()
+    simulation_summary.append(differences)
+
+simulation_summary = pd.DataFrame(simulation_summary)#.transpose()
+simulation_summary_description = simulation_summary.describe(include="all") 
+
+
+
+
+
+
