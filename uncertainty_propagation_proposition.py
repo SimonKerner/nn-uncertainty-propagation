@@ -79,7 +79,7 @@ get_true_prediction_metrics = False
 
 
 
-bw_method='scott'
+bw_method='scott' 
 bw_adjust=1
 
 
@@ -158,6 +158,7 @@ if dataset == "predict+students+dropout+and+academic+success":
 
 
 
+
 DATAFRAME = DATAFRAME.iloc[:,15:].copy()
 column_names = column_names[15:]
 
@@ -185,37 +186,20 @@ if standardize_data:
 
 
 if visiualize_data:
-    """
-    # plot Scatter matrix of dataframe
-    sns.set_style("whitegrid")
-    sns_plot = sns.PairGrid(DATAFRAME, diag_sharey=False, corner=False)
-    sns_plot.map_lower(sns.kdeplot, levels=4, color = "red", fill=True, alpha=0.4)
-    sns_plot.map_lower(sns.scatterplot, s=15)
-    sns_plot.map_diag(sns.kdeplot, fill=True)
-    plt.savefig(os.path.join(image_path, 'dataset_plot.png'))
-    
-
-    # Density and Histplot for exploration
-    distplot_data = DATAFRAME.melt(var_name='column_names')
-    distplot_plot = sns.displot(data=distplot_data, x='value', col='column_names', col_wrap=5, rug=False, kde=True, stat='density')
-    plt.show()
-    distplot_plot.savefig(os.path.join(image_path, 'distplot_plot.png'))
-    plt.close()
-    """
     
     # Plotting combined distribution using box plots
     DATAFRAME.boxplot(column=column_names, figsize=(12, 6))
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.show()
-
+    
     
     # Plotting combined distribution using histograms
     DATAFRAME.hist(column=column_names, bins=15, figsize=(12, 10))
     plt.tight_layout()
     plt.show()
     
-    
+    """
     # Visualizing correlation between variables using a heatmap
     corr_matrix = DATAFRAME.corr()
     plt.figure(figsize=(12, 10))
@@ -227,50 +211,25 @@ if visiualize_data:
     # Create a KDE plot for each column
     for column in column_names:
         plt.figure(figsize=(8, 4))
-        sns.kdeplot(data=DATAFRAME[column], fill=True, color='skyblue', alpha=0.5)
+        sns.kdeplot(data=DATAFRAME[column], fill=True, color='skyblue', alpha=0.5, bw_method=bw_method, bw_adjust=bw_adjust)
         plt.xlabel(column)
         plt.ylabel('Density')
         plt.title(f'KDE Plot of {column}')
         plt.tight_layout()
         plt.show()
-        
+    """   
         
     # Create a combined KDE plot
     plt.figure(figsize=(12, 6))
-    for column in column_names:
-        sns.kdeplot(data=DATAFRAME[column], fill=True, label=column)
+    for column in column_names[:-1]:
+        sns.kdeplot(data=DATAFRAME[column], fill=True, label=column, bw_method=bw_method, bw_adjust=bw_adjust)
     plt.xlabel('Values')
     plt.ylabel('Density')
-    plt.title('Combined KDE Plot')
-    plt.legend()
+    plt.title('Combined Input KDE Plot')
+    #plt.legend(False)
     plt.tight_layout()
     plt.show()
-    
-    
-    combined_kde = None
-    for column in column_names:
-        # Calculate the KDE for the current column
-        data = DATAFRAME[column]
-        kde = gaussian_kde(data)
-        x = np.linspace(data.min(), data.max(), 1000)
-        y = kde(x)
-        
-        if combined_kde is None:
-            combined_kde = np.zeros_like(y)
-        
-        # Add the KDE estimates to the combined KDE
-        combined_kde += y
-    
-    
-    # Plot the combined KDE
-    plt.plot(x, combined_kde, label="Combined KDE")
-    plt.xlabel('Values')
-    plt.ylabel('Density')
-    plt.title('Combined KDE Plot')
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-    
+
 
 
 
@@ -283,10 +242,64 @@ X_complete = DATAFRAME.iloc[:, 0:-1]
 y_complete = DATAFRAME[column_names[-1]]
 
 
+#X_complete_train, X_complete_test, y_complete_train,  y_complete_test = train_test_split(X_complete, y_complete, test_size=0.25, random_state=RANDOM_STATE)
+
+
+##########################################################################################################################
+# get distributions
+##########################################################################################################################
+
+# get KDE values of each column (X_complete) 
+DATAFRAME_KDE = []
+for i in range(len(column_names[:-1])):
+    column_data = X_complete.iloc[:,i]
+    column_kde = gaussian_kde(column_data)
+    
+    DATAFRAME_KDE.append(column_kde)
+
+    #print(column_kde.pdf(0))
+
+
+# transform values of X_complete into KDE probabilities
+DATAFRAME_PROBABILITY = []
+for row in range(len(X_complete)):
+    get_row = DATAFRAME.loc[row].transpose()
+    get_row_values = np.array(get_row)[:-1]
+    get_row_label = np.array(get_row)[-1]
+
+    # get probabilities PDF of original input value
+    get_row_pdf = []
+    for i, j in enumerate(DATAFRAME_KDE):
+        get_row_pdf.append(j.pdf(get_row_values[i])[0])
+    get_row_pdf.append(get_row_label)
+    
+    DATAFRAME_PROBABILITY.append(get_row_pdf)
+    
+    #print(get_row_pdf)
+
+DATAFRAME_PROBABILITY = np.array(DATAFRAME_PROBABILITY)
+DATAFRAME_PROBABILITY = pd.DataFrame(data=DATAFRAME_PROBABILITY, columns=column_names)    
+
+
+X_complete = DATAFRAME_PROBABILITY.iloc[:, 0:-1]
+y_complete = DATAFRAME_PROBABILITY[column_names[-1]]
+
+
 X_complete_train, X_complete_test, y_complete_train,  y_complete_test = train_test_split(X_complete, y_complete, test_size=0.25, random_state=RANDOM_STATE)
 
 
 
+
+#DATAFRAME_PROBABILITY.iloc[:, :-1].plot.kde(column=column_names[:-1], figsize=(12, 10))
+#plt.tight_layout()
+#plt.show()
+
+#sns.kdeplot(get_row)
+#plt.show()
+#sns.kdeplot(get_row_pdf)
+#plt.show()
+
+#sys.exit()
 
 ##########################################################################################################################
 # create standard vanilla feed forward neural network
@@ -317,7 +330,7 @@ if train_model:
 
 
     # save new model
-    model.save(os.path.join(model_path, dataset + "_model"))
+    model.save(os.path.join(model_path, dataset + "_model_probability"))
 
 
 
@@ -328,7 +341,7 @@ if train_model:
 
 
 if load_model:
-    model = keras.models.load_model(os.path.join(model_path, dataset + "_model"))
+    model = keras.models.load_model(os.path.join(model_path, dataset + "_model_probability"))
     model.summary()
 
 
@@ -350,13 +363,15 @@ if get_true_prediction_metrics:
 
 
 
-#DATAFRAME.iloc[:, :-1].plot.kde(column=column_names[:-1], figsize=(12, 10))
+#DATAFRAME_PROBABILITY.iloc[:, :-1].plot.kde(column=column_names[:-1], figsize=(12, 10))
 #plt.tight_layout()
 #plt.show()
 
 
 #sns.kdeplot(y_complete_hat)
-#plt.show
+#plt.show()
+
+
 
 ##########################################################################################################################
 # remove data in original dataframe
@@ -364,8 +379,8 @@ if get_true_prediction_metrics:
 
 
 # create new Dataset with random missing values
-DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :-1], miss_rate=0.5, random_seed=RANDOM_STATE) 
-DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME.iloc[:,-1], left_index=True, right_index=True)
+DATAFRAME_MISS = utils.add_missing_values(DATAFRAME_PROBABILITY.iloc[:, :-1], miss_rate=0.1, random_seed=RANDOM_STATE) 
+DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME_PROBABILITY.iloc[:,-1], left_index=True, right_index=True)
 
 
 
@@ -379,7 +394,7 @@ DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME.iloc[:,-1], left_index=True, rig
 """
 
 # Monte Carlo Simulation Length
-sim_length = 3000
+sim_length = 50
 
 """
 DATAFRAME_MISS_LIST = []
@@ -421,11 +436,11 @@ for i in range(sim_length):
     #DATAFRAME_UNCERTAIN = pd.DataFrame(knn_imp.fit_transform(DATAFRAME_MISS), columns=column_names)
     
     
-    X_uncertain = DATAFRAME_UNCERTAIN.drop(column_names[-1], axis=1)
-    y_uncertain = DATAFRAME_UNCERTAIN[column_names[-1]]
     
-    X_uncertain = X_uncertain.values
-    y_uncertain = y_uncertain.values
+    X_uncertain = DATAFRAME_UNCERTAIN.iloc[:, 0:-1]
+    y_uncertain = DATAFRAME_UNCERTAIN[column_names[-1]]
+
+
 
     # Get the predicted probabilities for the imputed dataset
     y_uncertain_hat = model.predict(X_uncertain).flatten()
@@ -438,7 +453,7 @@ for i in range(sim_length):
     sim_history_dataframes.append(DATAFRAME_UNCERTAIN)
     #sim_history_dataframe_kde.append(kde)
     sim_history_predictions.append(y_uncertain_hat)
-    sim_history_prediction_labels.append((y_uncertain_hat>0.5).astype("int32"))
+    #sim_history_prediction_labels.append((y_uncertain_hat>0.5).astype("int32"))
 
 
     """
@@ -457,10 +472,7 @@ for i in range(sim_length):
         plt.tight_layout()
         plt.show()
     """
- 
     
-
-
     
 
 # change sim_history_predictions to dataframe for better inspection
@@ -469,6 +481,7 @@ sim_history_predictions_df = pd.DataFrame(data=sim_history_predictions)
 sim_history_predictions_df_describtion = sim_history_predictions_df.describe()
 
 sim_history_predictions_mean = sim_history_predictions_df_describtion.loc["mean"]
+
 """
 sim_history_predictions_minus_mean = sim_history_predictions_mean - sim_history_predictions_df_describtion.loc["std"]
 sim_history_predictions_minus_mean = sim_history_predictions_minus_mean.rename("-std")
@@ -476,9 +489,8 @@ sim_history_predictions_plus_mean = sim_history_predictions_mean + sim_history_p
 sim_history_predictions_plus_mean = sim_history_predictions_plus_mean.rename("+std")
 """
 
-#for i in range(sim_length):
-    
-#    sns.kdeplot(sim_history_predictions_df.loc[i], alpha=.2, linewidth=0.4, color = "grey")
+#for i in range(sim_length):   
+#    sns.kdeplot(sim_history_predictions_df.loc[i], alpha=.2, linewidth=0.4, color = "grey", common_grid=True, cumulative=False, thresh=0, cut=0)
 
 
 print_results = [y_complete_hat.flatten(), sim_history_predictions_mean]
@@ -500,11 +512,7 @@ plt.show()
 
 
 
-if get_true_prediction_metrics:
-    for i in range(len(sim_history_prediction_labels)):
-        if i % 50 == 0:
-            utils.create_metrics(y_complete, sim_history_prediction_labels[i])
-            plt.show() 
+
 
 
 """
@@ -517,8 +525,6 @@ for i in range(sim_length):
 simulation_summary = pd.DataFrame(simulation_summary)#.transpose()
 simulation_summary_description = simulation_summary.describe(include="all") 
 """
-
-
 
 
 
