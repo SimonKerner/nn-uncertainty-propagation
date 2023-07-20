@@ -246,7 +246,7 @@ y_complete = DATAFRAME[column_names[-1]]
 
 
 ##########################################################################################################################
-# get distributions
+# transform dataframe values into PDF values of corresponding DataFrame KDE values
 ##########################################################################################################################
 
 # get KDE values of each column (X_complete) 
@@ -290,16 +290,16 @@ X_complete_train, X_complete_test, y_complete_train,  y_complete_test = train_te
 
 
 
-#DATAFRAME_PROBABILITY.iloc[:, :-1].plot.kde(column=column_names[:-1], figsize=(12, 10))
-#plt.tight_layout()
-#plt.show()
+DATAFRAME_PROBABILITY.iloc[:, :-1].plot.kde(column=column_names[:-1], figsize=(12, 10))
+plt.tight_layout()
+plt.show()
 
-#sns.kdeplot(get_row)
-#plt.show()
-#sns.kdeplot(get_row_pdf)
-#plt.show()
+sns.kdeplot(get_row)
+plt.show()
+sns.kdeplot(get_row_pdf)
+plt.show()
 
-#sys.exit()
+sys.exit()
 
 ##########################################################################################################################
 # create standard vanilla feed forward neural network
@@ -379,7 +379,7 @@ if get_true_prediction_metrics:
 
 
 # create new Dataset with random missing values
-DATAFRAME_MISS = utils.add_missing_values(DATAFRAME_PROBABILITY.iloc[:, :-1], miss_rate=0.1, random_seed=RANDOM_STATE) 
+DATAFRAME_MISS = utils.add_missing_values(DATAFRAME_PROBABILITY.iloc[:, :-1], miss_rate=0.5, random_seed=RANDOM_STATE) 
 DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME_PROBABILITY.iloc[:,-1], left_index=True, right_index=True)
 
 
@@ -435,20 +435,14 @@ for i in range(sim_length):
     #knn_imp = KNNImputer(n_neighbors=5)
     #DATAFRAME_UNCERTAIN = pd.DataFrame(knn_imp.fit_transform(DATAFRAME_MISS), columns=column_names)
     
-    
-    
     X_uncertain = DATAFRAME_UNCERTAIN.iloc[:, 0:-1]
     y_uncertain = DATAFRAME_UNCERTAIN[column_names[-1]]
-
-
 
     # Get the predicted probabilities for the imputed dataset
     y_uncertain_hat = model.predict(X_uncertain).flatten()
 
-    
     #kde = KernelDensity(kernel=kernel, bandwidth=bandwidth)
     #kde.fit(X_uncertain)
-
 
     sim_history_dataframes.append(DATAFRAME_UNCERTAIN)
     #sim_history_dataframe_kde.append(kde)
@@ -482,6 +476,7 @@ sim_history_predictions_df_describtion = sim_history_predictions_df.describe()
 
 sim_history_predictions_mean = sim_history_predictions_df_describtion.loc["mean"]
 
+
 """
 sim_history_predictions_minus_mean = sim_history_predictions_mean - sim_history_predictions_df_describtion.loc["std"]
 sim_history_predictions_minus_mean = sim_history_predictions_minus_mean.rename("-std")
@@ -495,22 +490,22 @@ sim_history_predictions_plus_mean = sim_history_predictions_plus_mean.rename("+s
 
 print_results = [y_complete_hat.flatten(), sim_history_predictions_mean]
 
-sns.kdeplot(print_results, common_grid=True, cumulative=False, thresh=0)
-#plot = so.Plot(print_results)
-#ax_l1 = ax.get_lines()[1].get_data()
-#ax_l2 = ax.get_lines()[0].get_data()
-#ax.fill_between(ax_l1[0], ax_l1[1], ax_l2[1], alpha=0.2)
+sns.kdeplot(print_results, common_grid=False, cumulative=False, thresh=0)
 plt.tight_layout()
 plt.show()
 
 
 # plot histograms
-sns.histplot(print_results, thresh=None, bins=10)
+sns.histplot(print_results[:-1], thresh=None, bins=10)
 plt.tight_layout()
 plt.show()
 
-
-
+"""
+plt.fill_between(np.arange())
+ax_l1 = ax.get_lines()[1].get_data()
+ax_l2 = ax.get_lines()[0].get_data()
+ax.fill_between(ax_l1[0], ax_l1[1], ax_l2[1], alpha=0.2)
+"""
 
 
 
