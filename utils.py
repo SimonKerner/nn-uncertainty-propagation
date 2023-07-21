@@ -233,7 +233,7 @@ def kde_Imputer(dataframe, kernel="gaussian", bandwidth="scott", random_state=No
             if k not in valid_kernels:
                 raise ValueError(f"Invalid kernel type '{k}' for column '{col}'. Valid options are: {', '.join(valid_kernels)}.")
     
-    if not isinstance(bandwidth, (str, float)):
+    if not isinstance(bandwidth, (str, float, int)):
         raise ValueError("The 'bandwidth' argument must be a string or a float.")
     
     if isinstance(kernel, str):
@@ -247,7 +247,7 @@ def kde_Imputer(dataframe, kernel="gaussian", bandwidth="scott", random_state=No
     for column in dataframe.columns:
         values = dataframe[column].dropna().values.reshape(-1, 1)
         
-        kde = KernelDensity(kernel=kernel_mapping.get(column), bandwidth=bandwidth)
+        kde = KernelDensity(kernel=kernel_mapping.get(column), bandwidth=bandwidth,)
         kde.fit(values)
         
         if print_info:

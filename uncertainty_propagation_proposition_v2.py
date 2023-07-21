@@ -75,9 +75,8 @@ standardize_data = True
 visiualize_data = False
 
 
-use_normal_frame = False
-
-use_probability_frame = True
+use_normal_frame = True
+use_probability_frame = False
 
 
 # train or load model
@@ -115,12 +114,6 @@ if dataset == "wdbc":
     column_names = ["Attribute: " + str(i) for i in range(len(DATAFRAME.columns))]
     column_names[-1] = "Outcome"
     DATAFRAME.columns = column_names
-
-
-
-
-DATAFRAME = DATAFRAME.iloc[:,15:].copy()
-column_names = column_names[15:]
 
 
 
@@ -315,7 +308,7 @@ if load_model:
 ##########################################################################################################################
 # singe prediction metrics
 ##########################################################################################################################
-
+"""
 
 y_complete_hat = model.predict(X_complete).flatten()
 y_complete_hat_labels = (y_complete_hat>0.5).astype("int32")
@@ -349,32 +342,32 @@ if get_true_prediction_metrics:
     plt.show()
 
 
-
-
-
-
-
-
-
+"""
 
 
 
 
 ##########################################################################################################################
-# singe prediction metrics
+# introduce missing data - aka. aleatoric uncertainty
 ##########################################################################################################################
 
 
 # get KDE for each column
 
-DATAFRAME_MISS = utils.add_missing_values(DATAFRAME_PROBABILITY.iloc[:, :-1], miss_rate=0.2, random_seed=RANDOM_STATE) 
-DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME_PROBABILITY.iloc[:,-1], left_index=True, right_index=True)
+if use_normal_frame:
+    DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :-1], miss_rate=0.5, random_seed=RANDOM_STATE) 
+    DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME.iloc[:,-1], left_index=True, right_index=True)
+    
+    
+if use_probability_frame:
+    DATAFRAME_MISS = utils.add_missing_values(DATAFRAME_PROBABILITY.iloc[:, :-1], miss_rate=0.5, random_seed=RANDOM_STATE) 
+    DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME_PROBABILITY.iloc[:,-1], left_index=True, right_index=True)
 
 
 if visiualize_data:
     
     # Plotting combined distribution using histograms
-    DATAFRAME_MISS.hist(column=column_names, bins=15, figsize=(12, 10), density=True, sharey=False, sharex=True)
+    DATAFRAME_MISS.hist(column=column_names, bins=15, figsize=(12, 10), density=True)
     #plt.xlabel('Sigmoid Activations')
     #plt.ylabel('Density')
     plt.title('Input with missing data')
@@ -384,8 +377,270 @@ if visiualize_data:
 
 
 
-first_row = DATAFRAME_PROBABILITY.loc[0][:-1]
-first_row_outcome = DATAFRAME_PROBABILITY.loc[0][-1]
+##########################################################################################################################
+# experiments -- row wise simulations (row wise induction - row wise random induction)
+##########################################################################################################################
+
+
+######
+"""
+    row wise experiment - just for first row of DATAFRAME
+"""
+
+if use_normal_frame:
+    first_row = DATAFRAME.loc[0][:-1]
+    first_row_outcome = DATAFRAME.loc[0][-1]
+    
+    first_row_miss = DATAFRAME_MISS.loc[0][:-1]
+    first_row_miss_outcome = DATAFRAME_MISS.loc[0][-1]
+    
+    data_visualization_joint = pd.DataFrame(data={"DATAFRAME (TRUE)":first_row, 
+                                                  "DATAFRAME_MISSING (FALSE)":first_row_miss})
+    
+    sns.histplot(data_visualization_joint, fill=True, bins=15)
+    plt.show()
+    sns.kdeplot(data=data_visualization_joint, fill=True, color='skyblue', alpha=0.3, common_grid=True, common_norm=False)  
+    plt.show()
+
+
+
+
+if use_probability_frame:
+    first_row = DATAFRAME_PROBABILITY.loc[0][:-1]
+    first_row_outcome = DATAFRAME_PROBABILITY.loc[0][-1]
+    
+    first_row_miss = DATAFRAME_MISS.loc[0][:-1]
+    first_row_miss_outcome = DATAFRAME_MISS.loc[0][-1]
+    
+    
+    
+    
+    data_visualization_joint = pd.DataFrame(data={"DATAFRAME_PROBABILITY (TRUE)":first_row, 
+                                                  "DATAFRAME_MISSING (FALSE)":first_row_miss})
+    
+    sns.histplot(data_visualization_joint, fill=True, bins=15)
+    plt.show()
+    sns.kdeplot(data=data_visualization_joint, fill=True, color='skyblue', alpha=0.3, common_grid=True, common_norm=False)  
+    plt.show()
+
+
+
+## take get KDE of row
+first_row_miss_kde = [stats.gaussian_kde(first_row_miss.dropna())]
+
+
+
+"""
+    following is completely random without imputation fo nan values
+"""
+exp_1_sim_length = 500
+
+
+exp_1_sample_history = []
+for i in range(exp_1_sim_length):
+    exp_1_first_row_miss_sample = first_row_miss_kde[0].resample(len(first_row))
+
+    exp_1_sample_history.append(exp_1_first_row_miss_sample[0])
+
+exp_1_sample_history = pd.DataFrame(exp_1_sample_history)
+
+
+for i in range(exp_1_sim_length):
+    sns.kdeplot(exp_1_sample_history.loc[i], common_norm=False, alpha=0.5, linewidth=0.1, common_grid=True, legend=False, color="grey")
+plt.title("(Input) exp_1_: Sample History")
+sns.kdeplot(data=data_visualization_joint, fill=False, color='skyblue', common_grid=True, common_norm=False)  
+plt.show()
+
+exp_1_sample_history_stats = exp_1_sample_history.describe()
+
+
+exp_1_predictions = model.predict(exp_1_sample_history).flatten()
+
+
+
+
+"""
+    following is completely random with imputation of nan values
+"""
+
+exp_2_sim_length = 500
+
+exp_2_sample_history = []
+for i in range(exp_2_sim_length):
+    
+    exp_2_first_row_miss = first_row_miss.copy()
+    
+    exp_2_first_row_miss_sample = first_row_miss_kde[0].resample(exp_2_first_row_miss.isna().sum())
+
+    exp_2_sample = exp_2_first_row_miss_sample[0]
+    
+    
+    exp_2_indices = exp_2_first_row_miss.isna()
+    exp_2_indices = exp_2_indices[exp_2_indices].index
+    #exp_2_indices = exp_2_indices.tolist()
+
+
+    exp_2_use_to_induce = pd.Series(exp_2_sample, index=exp_2_indices)
+    
+    # induce nan with samples 
+    exp_2_first_row_comp = exp_2_first_row_miss.fillna(exp_2_use_to_induce)
+    exp_2_first_row_comp = np.array(exp_2_first_row_comp)
+    
+    exp_2_sample_history.append(exp_2_first_row_comp)
+
+exp_2_sample_history = pd.DataFrame(exp_2_sample_history)
+
+
+for i in range(exp_2_sim_length):
+    sns.kdeplot(exp_2_sample_history.loc[i], common_norm=False, alpha=0.5, linewidth=0.1, common_grid=True, legend=False, color="grey")
+plt.title("(Input) exp_2_: Sample History")
+sns.kdeplot(data=data_visualization_joint, fill=False, color='skyblue', common_grid=True, common_norm=False)  
+plt.show()
+
+exp_2_sample_history_stats = exp_2_sample_history.describe()
+
+
+exp_2_predictions = model.predict(exp_2_sample_history).flatten()
+
+
+
+
+
+"""
+    following are the results of collected simulation experiments
+"""
+
+# comparisons between exp_1 and exp_2
+exp_0_experiment_collection = pd.DataFrame({"exp_1_random":exp_1_predictions, 
+                                            "exp_2_induced":exp_2_predictions})
+exp_0_experiment_stats = exp_0_experiment_collection.describe()
+
+sns.kdeplot(exp_0_experiment_collection, common_norm=False, common_grid=True, legend=True)
+plt.title("(Output) MC-Comparison of exp_1 and exp_2 predictions")
+plt.show()
+
+
+
+
+"""
+    column wise imputation of missing values
+"""
+
+
+
+
+
+
+'''
+def kde_Imputer(dataframe, kernel="gaussian", bandwidth="scott", random_state=None, print_info=False):
+
+    imputed_df = dataframe.copy()
+    
+    for column in dataframe.columns:
+        values = dataframe[column].dropna().values
+        
+        kde = stats.gaussian_kde(values)   
+        kde_vis = [kde]
+        
+        if print_info:
+            # Print the KernelDensity parameters for the current column
+            #print(f"Column: {column}")
+            #print(f"Kernel: {kde.kernel}")
+            #print(f"Bandwidth: {kde.bandwidth}\n")
+
+            # KDE Plot of column without missing data
+            plt.figure(figsize=(8, 4))
+            
+            test = DATAFRAME_PROBABILITY[column]
+            
+            data_visualization_joint = pd.DataFrame(data={"DATAFRAME_PROBABILITY (TRUE)":test, "DATAFRAME_UNDERLYING (ESTIMATED)":dataframe[column]})
+            
+            sns.kdeplot(data=data_visualization_joint, fill=True, color='skyblue', alpha=0.5, common_grid=True, common_norm=False)      
+     
+            plt.xlabel(column)
+            plt.ylabel('Density')
+            plt.title(f'KDE Plot of Column: {column}')
+            plt.tight_layout()
+            plt.show()
+
+
+        missing_values = imputed_df[column].isnull()
+        num_missing = missing_values.sum()
+
+        if num_missing > 0:
+            kde_samples = kde.sample(num_missing, random_state=random_state)    
+            
+            # Limit samples to the range of 0 and 1 for binary columns
+            if np.array_equal(np.unique(values), [0., 1.]):
+                
+                kde_samples = np.random.choice(np.clip(kde_samples, a_min=0., a_max=1.).flatten(), num_missing, replace=True)
+            
+            # if original columns do not have negative values, clip at lower limit
+            elif (values<0).sum() == 0:
+    
+                kde_samples = np.random.choice(np.clip(kde_samples, a_min=0., a_max=None).flatten(), num_missing, replace=True)
+                      
+            kde_samples = np.random.choice(kde_samples.reshape(-1), num_missing, replace=True)  # Reshape to match missing values
+            imputed_df.loc[missing_values, column] = kde_samples
+
+    return imputed_df
+
+
+
+
+kde = kde_Imputer(DATAFRAME_MISS, print_info=True)
+'''
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+sys.exit()
+#first_row_y_hat = model.predict(np.reshape(first_row.values, (-1,15)))
+#first_row_miss_y_hat = model.predict(np.reshape(first_row_miss.values, (-1,15)))
+
+
+
+DATAFRAME_IMPUTE = utils.kde_Imputer(DATAFRAME_MISS, kernel="gaussian", bandwidth=0.5, random_state=None, print_info=False)
+
+
+first_row_impute = DATAFRAME_IMPUTE.loc[0][:-1]
+first_row_impute_outcome = DATAFRAME_IMPUTE.loc[0][-1]
+
+first_row_comp_joint = np.stack([first_row, first_row_miss, first_row_impute], 1)
+first_row_comp_joint = pd.DataFrame(first_row_comp_joint, columns=["first_row", "first_row_miss", "first_row_impute"])
+
+
+sns.kdeplot(first_row_comp_joint, fill=False, bw_adjust=1, common_grid=True)
+plt.show()
+
+
+
+
+
+"""
+DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :-1], miss_rate=0.5, random_seed=RANDOM_STATE) 
+DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME.iloc[:,-1], left_index=True, right_index=True)
+
+
+first_row = DATAFRAME.loc[0][:-1]
+first_row_outcome = DATAFRAME.loc[0][-1]
 
 first_row_miss = DATAFRAME_MISS.loc[0][:-1]
 first_row_miss_outcome = DATAFRAME_MISS.loc[0][-1]
@@ -396,17 +651,7 @@ first_row_joint = pd.DataFrame(first_row_joint, columns=["first_row", "first_row
 
 sns.kdeplot(first_row_joint, fill=True, bw_adjust=1)
 plt.show()
-
-
-#first_row_y_hat = model.predict(np.reshape(first_row.values, (-1,15)))
-#first_row_miss_y_hat = model.predict(np.reshape(first_row_miss.values, (-1,15)))
-
-
-
-
-
-
-
+"""
 
 
 
