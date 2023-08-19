@@ -270,7 +270,7 @@ def kde_Imputer(dataframe, kernel="gaussian", bandwidth="scott", random_state=No
 
         if num_missing > 0:
             kde_samples = kde.sample(num_missing, random_state=random_state)    
-            
+            """
             # Limit samples to the range of 0 and 1 for binary columns
             if np.array_equal(np.unique(values), [0., 1.]):
                 
@@ -280,7 +280,7 @@ def kde_Imputer(dataframe, kernel="gaussian", bandwidth="scott", random_state=No
             elif (values<0).sum() == 0:
     
                 kde_samples = np.random.choice(np.clip(kde_samples, a_min=0., a_max=None).flatten(), num_missing, replace=True)
-                      
+            """         
             kde_samples = np.random.choice(kde_samples.reshape(-1), num_missing, replace=True)  # Reshape to match missing values
             imputed_df.loc[missing_values, column] = kde_samples
 

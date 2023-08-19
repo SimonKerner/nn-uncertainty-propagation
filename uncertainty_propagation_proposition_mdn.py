@@ -37,7 +37,7 @@ from sklearn.impute import KNNImputer
 from scipy.stats import gaussian_kde
 from sklearn.neighbors import KernelDensity
 
-
+import chaospy as cp
 
 ##########################################################################################################################
 # set important paths
@@ -159,8 +159,8 @@ if dataset == "predict+students+dropout+and+academic+success":
 
 
 
-DATAFRAME = DATAFRAME.iloc[:,15:].copy()
-column_names = column_names[15:]
+#DATAFRAME = DATAFRAME.iloc[:,15:].copy()
+#column_names = column_names[15:]
 
 
 ##########################################################################################################################
@@ -237,69 +237,13 @@ if visiualize_data:
 # Split data into X and y - optional scaling of data
 ##########################################################################################################################
 
-
+'''
 X_complete = DATAFRAME.iloc[:, 0:-1]
 y_complete = DATAFRAME[column_names[-1]]
 
 
-#X_complete_train, X_complete_test, y_complete_train,  y_complete_test = train_test_split(X_complete, y_complete, test_size=0.25, random_state=RANDOM_STATE)
-
-
-##########################################################################################################################
-# transform dataframe values into PDF values of corresponding DataFrame KDE values
-##########################################################################################################################
-
-# get KDE values of each column (X_complete) 
-DATAFRAME_KDE = []
-for i in range(len(column_names[:-1])):
-    column_data = X_complete.iloc[:,i]
-    column_kde = gaussian_kde(column_data)
-    
-    DATAFRAME_KDE.append(column_kde)
-
-    #print(column_kde.pdf(0))
-
-
-# transform values of X_complete into KDE probabilities
-DATAFRAME_PROBABILITY = []
-for row in range(len(X_complete)):
-    get_row = DATAFRAME.loc[row].transpose()
-    get_row_values = np.array(get_row)[:-1]
-    get_row_label = np.array(get_row)[-1]
-
-    # get probabilities PDF of original input value
-    get_row_pdf = []
-    for i, j in enumerate(DATAFRAME_KDE):
-        get_row_pdf.append(j.pdf(get_row_values[i])[0])
-    get_row_pdf.append(get_row_label)
-    
-    DATAFRAME_PROBABILITY.append(get_row_pdf)
-    
-    #print(get_row_pdf)
-
-DATAFRAME_PROBABILITY = np.array(DATAFRAME_PROBABILITY)
-DATAFRAME_PROBABILITY = pd.DataFrame(data=DATAFRAME_PROBABILITY, columns=column_names)    
-
-
-X_complete = DATAFRAME_PROBABILITY.iloc[:, 0:-1]
-y_complete = DATAFRAME_PROBABILITY[column_names[-1]]
-
-
 X_complete_train, X_complete_test, y_complete_train,  y_complete_test = train_test_split(X_complete, y_complete, test_size=0.25, random_state=RANDOM_STATE)
 
-
-
-
-DATAFRAME_PROBABILITY.iloc[:, :-1].plot.kde(column=column_names[:-1], figsize=(12, 10))
-plt.tight_layout()
-plt.show()
-
-sns.kdeplot(get_row)
-plt.show()
-sns.kdeplot(get_row_pdf)
-plt.show()
-
-sys.exit()
 
 ##########################################################################################################################
 # create standard vanilla feed forward neural network
@@ -330,7 +274,7 @@ if train_model:
 
 
     # save new model
-    model.save(os.path.join(model_path, dataset + "_model_probability"))
+    model.save(os.path.join(model_path, dataset + "_model"))
 
 
 
@@ -341,7 +285,7 @@ if train_model:
 
 
 if load_model:
-    model = keras.models.load_model(os.path.join(model_path, dataset + "_model_probability"))
+    model = keras.models.load_model(os.path.join(model_path, dataset + "_model"))
     model.summary()
 
 
@@ -363,7 +307,7 @@ if get_true_prediction_metrics:
 
 
 
-#DATAFRAME_PROBABILITY.iloc[:, :-1].plot.kde(column=column_names[:-1], figsize=(12, 10))
+#DATAFRAME.iloc[:, :-1].plot.kde(column=column_names[:-1], figsize=(12, 10))
 #plt.tight_layout()
 #plt.show()
 
@@ -379,10 +323,10 @@ if get_true_prediction_metrics:
 
 
 # create new Dataset with random missing values
-DATAFRAME_MISS = utils.add_missing_values(DATAFRAME_PROBABILITY.iloc[:, :-1], miss_rate=0.5, random_seed=RANDOM_STATE) 
-DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME_PROBABILITY.iloc[:,-1], left_index=True, right_index=True)
+DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :-1], miss_rate=0.5, random_seed=RANDOM_STATE) 
+DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME.iloc[:,-1], left_index=True, right_index=True)
 
-
+'''
 
 
 ##########################################################################################################################
@@ -392,134 +336,5 @@ DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME_PROBABILITY.iloc[:,-1], left_ind
 """
     # Monte Carlo Simulation with induced uncertainty
 """
-
-# Monte Carlo Simulation Length
-sim_length = 50
-
-"""
-DATAFRAME_MISS_LIST = []
-for i in range(sim_length):
-    DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :-1], miss_rate=0.5, random_seed=RANDOM_STATE) 
-    DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME.iloc[:,-1], left_index=True, right_index=True)
-    
-    DATAFRAME_MISS_LIST.append(DATAFRAME_MISS)
-"""
-
-# following => INPUT DATAFRAMES
-sim_history_dataframes = []     # with imputed dataframes (including uncertainty)
-
-# following => KDE VALUES FOR EACH DATAFRAME
-sim_history_dataframe_kde = []
-
-# following => OUTPUT PREDICTIONS as 
-sim_history_predictions = []    # with prdictions on the x-axis
-
-# following => OUTPUT PREDICTION as LABELS
-sim_history_prediction_labels = []
-
-
-# following => MC-Simulation
-for i in range(sim_length):
-    """
-    DATAFRAME_MISS = DATAFRAME_MISS_LIST[i]
-    """
-    # kde imputer uses --from sklearn.neighbors import KernelDensity
-    kernel = "gaussian"
-    bandwidth = "scott"
-    DATAFRAME_UNCERTAIN = utils.kde_Imputer(DATAFRAME_MISS, kernel=kernel, bandwidth=bandwidth)
-
-    # SimpleImputer imputer uses strategies --mean, median, most_frequent
-    #simp_imp = SimpleImputer(strategy="median")
-    #DATAFRAME_UNCERTAIN = pd.DataFrame(simp_imp.fit_transform(DATAFRAME_MISS), columns=column_names)
- 
-    #knn_imp = KNNImputer(n_neighbors=5)
-    #DATAFRAME_UNCERTAIN = pd.DataFrame(knn_imp.fit_transform(DATAFRAME_MISS), columns=column_names)
-    
-    X_uncertain = DATAFRAME_UNCERTAIN.iloc[:, 0:-1]
-    y_uncertain = DATAFRAME_UNCERTAIN[column_names[-1]]
-
-    # Get the predicted probabilities for the imputed dataset
-    y_uncertain_hat = model.predict(X_uncertain).flatten()
-
-    #kde = KernelDensity(kernel=kernel, bandwidth=bandwidth)
-    #kde.fit(X_uncertain)
-
-    sim_history_dataframes.append(DATAFRAME_UNCERTAIN)
-    #sim_history_dataframe_kde.append(kde)
-    sim_history_predictions.append(y_uncertain_hat)
-    #sim_history_prediction_labels.append((y_uncertain_hat>0.5).astype("int32"))
-
-
-    """
-    if i % 50 == 0:    
-        
-        # change sim_history_predictions to dataframe for better inspection
-        sim_history_predictions_df = pd.DataFrame(data=sim_history_predictions)
-        # summary statistics of simulation history
-        sim_history_predictions_df_describtion = sim_history_predictions_df.describe(include="all")
-        
-        sim_history_predictions_mean = sim_history_predictions_df_describtion.loc["mean"]
-        
-        test = [y_complete_hat.flatten(), sim_history_predictions_mean]
-        
-        sns.kdeplot([test[0], test[1]], fill=True)
-        plt.tight_layout()
-        plt.show()
-    """
-    
-    
-
-# change sim_history_predictions to dataframe for better inspection
-sim_history_predictions_df = pd.DataFrame(data=sim_history_predictions)
-# summary statistics of simulation history
-sim_history_predictions_df_describtion = sim_history_predictions_df.describe()
-
-sim_history_predictions_mean = sim_history_predictions_df_describtion.loc["mean"]
-
-
-"""
-sim_history_predictions_minus_mean = sim_history_predictions_mean - sim_history_predictions_df_describtion.loc["std"]
-sim_history_predictions_minus_mean = sim_history_predictions_minus_mean.rename("-std")
-sim_history_predictions_plus_mean = sim_history_predictions_mean + sim_history_predictions_df_describtion.loc["std"]
-sim_history_predictions_plus_mean = sim_history_predictions_plus_mean.rename("+std")
-"""
-
-#for i in range(sim_length):   
-#    sns.kdeplot(sim_history_predictions_df.loc[i], alpha=.2, linewidth=0.4, color = "grey", common_grid=True, cumulative=False, thresh=0, cut=0)
-
-
-print_results = [y_complete_hat.flatten(), sim_history_predictions_mean]
-
-sns.kdeplot(print_results, common_grid=False, cumulative=False, thresh=0)
-plt.tight_layout()
-plt.show()
-
-
-# plot histograms
-sns.histplot(print_results[:-1], thresh=None, bins=10)
-plt.tight_layout()
-plt.show()
-
-"""
-plt.fill_between(np.arange())
-ax_l1 = ax.get_lines()[1].get_data()
-ax_l2 = ax.get_lines()[0].get_data()
-ax.fill_between(ax_l1[0], ax_l1[1], ax_l2[1], alpha=0.2)
-"""
-
-
-
-
-"""
-# used to calculate the differences between the True distrubution labels and mc labels
-simulation_summary = []
-for i in range(sim_length):
-    differences = sim_history_prediction_labels[i] == y_complete_hat_labels.flatten()
-    simulation_summary.append(differences)
-
-simulation_summary = pd.DataFrame(simulation_summary)#.transpose()
-simulation_summary_description = simulation_summary.describe(include="all") 
-"""
-
 
 
