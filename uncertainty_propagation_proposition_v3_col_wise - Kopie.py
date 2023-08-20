@@ -367,7 +367,7 @@ if get_true_prediction_metrics:
 
 
 # get KDE for each column
-MISS_RATE=0.5
+MISS_RATE=0.9
 
 
 if use_normal_frame:
@@ -414,7 +414,7 @@ if visiualize_data:
 IMPUTE = False
 
 # choose between kde_imputer, SimpleImputer//mean, SimpleImputer//median, SimpleImputer//most_frequent, KNNImputer
-IMPUTE_METHOD = "SimpleImputer//mean"
+IMPUTE_METHOD = "KNNImputer"
 
 if IMPUTE and IMPUTE_METHOD == "kde_imputer":
     DATAFRAME_IMPUTE = utils.kde_Imputer(DATAFRAME_MISS, kernel="gaussian", bandwidth="scott")
@@ -636,7 +636,7 @@ if IMPUTE:
     
     # visualize predictions
     plt.figure(figsize=(10, 6))
-    sns.histplot(data=y_impute_joint, x="sigmoid", hue="label", bins=10, stat="density", kde=True, kde_kws={"cut":0})
+    sns.histplot(data=y_impute_joint, x="sigmoid", hue="label", bins=10, stat="density", kde=False, kde_kws={"cut":0})
     plt.xlabel('Sigmoid Activations')
     plt.ylabel('Frequency')
     plt.title(f'Uncertain Combined Output Hist Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
@@ -678,16 +678,16 @@ if IMPUTE:
 
 
 ##########################################################################################################################
-# experiments modul 1 - with simulation --> missing data --> useage of kde of columns to simulate outcome
+# experiments modul 1 - with simulation --> missing data (row wise) --> useage of kde of columns to simulate outcome
 ##########################################################################################################################
 
 # step 0 --> first for loop for getting row and simulating this specific row
 
 
-SIMULATION_LENGTH = 100
+SIMULATION_LENGTH = 1000
 
 
-for i in range(len(DATAFRAME_MISS)):
+for i in range(1):#range(len(DATAFRAME_MISS)):
 
     # step 1: get row to work with
     
@@ -714,26 +714,79 @@ for i in range(len(DATAFRAME_MISS)):
       
         sample_history_uncertain.append(sample_uncertain.flatten())
         sample_history_original.append(sample_original.flatten())
-      
     
-    sample_history_uncertain = sample_history_uncertain
+    #test = sample_history_uncertain
+    sample_history_uncertain = pd.DataFrame(sample_history_uncertain).transpose()
+    sample_history_uncertain.columns = inds_to_key
+
+    sample_history_original = pd.DataFrame(sample_history_original).transpose()
+    sample_history_original.columns = inds_to_key
+
+    # step 4: create DATAFRAME for faster simulation (basis input) and replace missing values with sampled ones   
+
+    # index of DATAFRAME_MISS_ROW is now equal to number of simulations
+    DATAFRAME_MC_SIMULATION = DATAFRAME_MISS_ROW.copy().transpose()
+    DATAFRAME_MC_SIMULATION = pd.concat([DATAFRAME_MC_SIMULATION]*SIMULATION_LENGTH, ignore_index=True)
+    
+    # replace the missing values of DATAFRAME_MISS_ROW/ (now MC_SIMULATION) with the created samples 
+    for col in inds_to_key:
+        DATAFRAME_MC_SIMULATION[col] = sample_history_uncertain[col]
     
     
-    sample_history_uncertain = pd.DataFrame(sample_history_uncertain, columns=inds_to_key) 
-
+    #step 5: row prediction on uncertain samples
     
-    DATAFRAME_MISS_ROW = DATAFRAME_MISS_ROW.transpose()
-    DATAFRAME_MISS_ROW = pd.concat([DATAFRAME_MISS_ROW]*SIMULATION_LENGTH)
+    X_simulation = DATAFRAME_MC_SIMULATION.iloc[:, 0:-1]
+    y_simulation = DATAFRAME_MC_SIMULATION[column_names[-1]]
+    
+    y_simulation_hat = model.predict(X_simulation).flatten()
+    y_simulation_hat_labels = (y_simulation_hat>0.5).astype("int32")
+    y_simulation_joint = np.stack([y_simulation_hat, y_simulation_hat_labels], 1)
+    y_simulation_joint = pd.DataFrame(y_simulation_joint, columns=["sigmoid", "label"])
+
+
+
+
+    # visualize predictions
+    plt.figure(figsize=(10, 6))
+    sns.histplot(data=y_simulation_joint, x="sigmoid", hue="label", bins=10, stat="density", kde=False, kde_kws={"cut":0})
+    plt.xlabel('Sigmoid Activations')
+    plt.ylabel('Frequency')
+    plt.title(f'Uncertain Combined Output Hist Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
+    plt.tight_layout()
+    plt.show()
+    
+    
+    # visualize predictions
+    plt.figure(figsize=(10, 6))
+    sns.kdeplot(data=y_simulation_joint, x="sigmoid", hue="label", common_grid=True, cut=0)
+    plt.xlabel('Sigmoid Activations')
+    plt.ylabel('Density')
+    plt.title(f'Uncertain Combined Output Density Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
+    plt.tight_layout()
+    plt.show()
+    
 
 
 
 
 
 
+"""
+# compare against true distribution
 
+y_compare_joint = pd.concat([y_complete_joint, y_simulation_joint], axis=1, ignore_index=True, sort=False)
+y_compare_joint.columns = ["True_Sigmoid", "True_Label", "Uncertain_Sigmoid", "Uncertain_Label"]
+y_compare_sigs = pd.DataFrame(data=[y_compare_joint["True_Sigmoid"], y_compare_joint["Uncertain_Sigmoid"]]).transpose()
 
-
-
+plt.figure(figsize=(10, 6))
+#sns.kdeplot(data=y_compare_sigs, common_grid=True, cut=0)
+sns.histplot(data=y_compare_sigs, bins=15)
+plt.xlabel('Sigmoid Activations')
+plt.ylabel('Density')
+plt.title(f'True/Uncertain(stoch.) Sigmoid Comparison Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
+plt.tight_layout()
+plt.show()
+"""
 
 
 
