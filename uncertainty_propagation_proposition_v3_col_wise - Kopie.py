@@ -367,7 +367,7 @@ if get_true_prediction_metrics:
 
 
 # get KDE for each column
-MISS_RATE=0.9
+MISS_RATE=0.8
 
 
 if use_normal_frame:
@@ -456,7 +456,7 @@ else:
 """
 
 #KDE_VALUES OF EACH COLUMN
-print_info = False
+print_info = True
 
 
 if use_normal_frame:
@@ -684,14 +684,17 @@ if IMPUTE:
 # step 0 --> first for loop for getting row and simulating this specific row
 
 
-SIMULATION_LENGTH = 1000
+SIMULATION_LENGTH = 100000
 
 
-for i in range(1):#range(len(DATAFRAME_MISS)):
+uncertain_simulation_history = []
+original_simulation_history = []
+
+for i in range(5):#range(len(DATAFRAME_MISS)):    #
 
     # step 1: get row to work with
     
-    DATAFRAME_MISS_ROW = pd.DataFrame(DATAFRAME_MISS.loc[0])
+    DATAFRAME_MISS_ROW = pd.DataFrame(DATAFRAME_MISS.loc[i])
     
     
     # step 2: find all the attributes with nan values
@@ -700,13 +703,13 @@ for i in range(1):#range(len(DATAFRAME_MISS)):
     inds_to_key = [column_names[i] for i in inds_to_key]
 
 
-    sample_history_uncertain = []
-    sample_history_original = []  
-    
-    
+
     # step 3: sample a value from the specific kde of the missing value - aka. beginning of MonteCarlo Simulation
     # --> safe created value for this row in a history
     
+    
+    sample_history_uncertain = []
+    sample_history_original = []  
     for key in inds_to_key:
         
         sample_uncertain = kde_collection_uncertain[key].resample(SIMULATION_LENGTH)
@@ -722,49 +725,97 @@ for i in range(1):#range(len(DATAFRAME_MISS)):
     sample_history_original = pd.DataFrame(sample_history_original).transpose()
     sample_history_original.columns = inds_to_key
 
-    # step 4: create DATAFRAME for faster simulation (basis input) and replace missing values with sampled ones   
 
+    # step 4: create DATAFRAME for faster simulation (basis input) and replace missing values with sampled ones   
+    
     # index of DATAFRAME_MISS_ROW is now equal to number of simulations
     DATAFRAME_MC_SIMULATION = DATAFRAME_MISS_ROW.copy().transpose()
     DATAFRAME_MC_SIMULATION = pd.concat([DATAFRAME_MC_SIMULATION]*SIMULATION_LENGTH, ignore_index=True)
     
+    UNCERTAIN_DATAFRAME_MC_SIMULATION = DATAFRAME_MC_SIMULATION.copy()
+    ORIGINAL_DATAFRAME_MC_SIMULATION = DATAFRAME_MC_SIMULATION.copy()
+    
     # replace the missing values of DATAFRAME_MISS_ROW/ (now MC_SIMULATION) with the created samples 
     for col in inds_to_key:
-        DATAFRAME_MC_SIMULATION[col] = sample_history_uncertain[col]
+        UNCERTAIN_DATAFRAME_MC_SIMULATION[col] = sample_history_uncertain[col]
+        ORIGINAL_DATAFRAME_MC_SIMULATION[col] = sample_history_original[col]
     
     
-    #step 5: row prediction on uncertain samples
+    """
+        -----> Simulation procedure for uncertain kde induced simulation frames
+    """
+    #step 5.a: row prediction on uncertain samples
     
-    X_simulation = DATAFRAME_MC_SIMULATION.iloc[:, 0:-1]
-    y_simulation = DATAFRAME_MC_SIMULATION[column_names[-1]]
+    X_uncertain_simulation = UNCERTAIN_DATAFRAME_MC_SIMULATION.iloc[:, 0:-1]
+    y_uncertain_simulation = UNCERTAIN_DATAFRAME_MC_SIMULATION[column_names[-1]]
     
-    y_simulation_hat = model.predict(X_simulation).flatten()
-    y_simulation_hat_labels = (y_simulation_hat>0.5).astype("int32")
-    y_simulation_joint = np.stack([y_simulation_hat, y_simulation_hat_labels], 1)
-    y_simulation_joint = pd.DataFrame(y_simulation_joint, columns=["sigmoid", "label"])
+    y_uncertain_simulation_hat = model.predict(X_uncertain_simulation).flatten()
+    y_uncertain_simulation_hat_labels = (y_uncertain_simulation_hat>0.5).astype("int32")
+    y_uncertain_simulation_joint = np.stack([y_uncertain_simulation_hat, y_uncertain_simulation_hat_labels], 1)
+    y_uncertain_simulation_joint = pd.DataFrame(y_uncertain_simulation_joint, columns=["sigmoid", "label"])
+
+    uncertain_simulation_history.append(y_uncertain_simulation_hat_labels)
+
+
+
+    """
+        -----> Simulation procedure for true original kde induced simulation frames
+    """
+    #step 5.b: row prediction on original samples
+
+    X_original_simulation = ORIGINAL_DATAFRAME_MC_SIMULATION.iloc[:, 0:-1]
+    y_original_simulation = ORIGINAL_DATAFRAME_MC_SIMULATION[column_names[-1]]
+    
+    y_original_simulation_hat = model.predict(X_original_simulation).flatten()
+    y_original_simulation_hat_labels = (y_original_simulation_hat>0.5).astype("int32")
+    y_original_simulation_joint = np.stack([y_original_simulation_hat, y_original_simulation_hat_labels], 1)
+    y_original_simulation_joint = pd.DataFrame(y_original_simulation_joint, columns=["sigmoid", "label"])
+
+    original_simulation_history.append(y_original_simulation_hat_labels)
 
 
 
 
     # visualize predictions
     plt.figure(figsize=(10, 6))
-    sns.histplot(data=y_simulation_joint, x="sigmoid", hue="label", bins=10, stat="density", kde=False, kde_kws={"cut":0})
+    sns.histplot(data=y_uncertain_simulation_joint, x="sigmoid", hue="label", bins=10, stat="density", kde=False, kde_kws={"cut":0})
     plt.xlabel('Sigmoid Activations')
     plt.ylabel('Frequency')
-    plt.title(f'Uncertain Combined Output Hist Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
+    plt.title(f'Row: {i} Uncertain Sim. Output Density Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
     plt.tight_layout()
     plt.show()
-    
     
     # visualize predictions
     plt.figure(figsize=(10, 6))
-    sns.kdeplot(data=y_simulation_joint, x="sigmoid", hue="label", common_grid=True, cut=0)
+    sns.histplot(data=y_original_simulation_joint, x="sigmoid", hue="label", bins=10, stat="density", kde=False, kde_kws={"cut":0})
     plt.xlabel('Sigmoid Activations')
-    plt.ylabel('Density')
-    plt.title(f'Uncertain Combined Output Density Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
+    plt.ylabel('Frequency')
+    plt.title(f'Row: {i} Original Sim. Output Density Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
     plt.tight_layout()
     plt.show()
-    
+
+    """
+    # visualize predictions
+    plt.figure(figsize=(10, 6))
+    sns.kdeplot(data=y_uncertain_simulation_joint, x="sigmoid", hue="label", common_grid=True, cut=0,)
+    plt.xlabel('Sigmoid Activations')
+    plt.ylabel('Density')
+    plt.title(f'Row: {i} Uncertain Sim. Output Density Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
+    plt.tight_layout()
+    plt.show()
+ 
+    # visualize predictions
+    plt.figure(figsize=(10, 6))
+    sns.kdeplot(data=y_original_simulation_joint, x="sigmoid", hue="label", common_grid=True, cut=0,)
+    plt.xlabel('Sigmoid Activations')
+    plt.ylabel('Density')
+    plt.title(f'Row: {i} Original Sim. Output Density Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
+    plt.tight_layout()
+    plt.show()
+    """  
+   
+   
+test = pd.DataFrame(uncertain_simulation_history)
 
 
 
