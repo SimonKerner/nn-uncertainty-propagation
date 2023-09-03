@@ -371,7 +371,7 @@ if get_true_prediction_metrics:
 
 
 # get KDE for each column
-MISS_RATE=0.5
+MISS_RATE=0.1
 
 
 if use_normal_frame:
@@ -395,7 +395,11 @@ if visiualize_data:
     plt.show()
     
     
-##########################################################################################################################
+########
+
+
+
+##################################################################################################################
 # use of imputation methods for miss data
 ##########################################################################################################################
 
@@ -484,7 +488,7 @@ for row in range(len(DATAFRAME)):
         plt.show()
         
         
-    
+        sys.exit()
     
     ## take get KDE of row
     get_row_miss_kde = [stats.gaussian_kde(get_row_miss.dropna())]
