@@ -12,7 +12,7 @@ import sys
 from tqdm import tqdm
 
 import utils
-
+from pathlib import Path
 import numpy as np
 import pandas as pd
 
@@ -23,6 +23,7 @@ import seaborn as sns
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
+
 
 import tensorflow_probability as tfp
 
@@ -51,9 +52,9 @@ import scipy.stats as stats
 
 
 # set path to different folders
-dataset_path = os.path.join(os.getcwd(), 'datasets')
+_dataset_path = os.path.join(os.getcwd(), 'datasets')
 #image_path = os.path.join(os.getcwd(), 'images')
-model_path = os.path.join(os.getcwd(), 'models')
+_model_path = os.path.join(os.getcwd(), 'models')
 
 
 
@@ -61,10 +62,10 @@ model_path = os.path.join(os.getcwd(), 'models')
 ##########################################################################################################################
 """
 information about the datasets:
-    -wdbc - all attributes are considered continious - outcome is binary 
-    -climate_simulation - 
-    -australian - 
-    - predict+students+dropout+and+academic+success - three outcomes
+    -[1] wdbc - all attributes are considered continious - outcome is binary 
+    -[2] climate_simulation - 
+    -[3] australian - 
+    -[4] predict+students+dropout+and+academic+success - three outcomes
     
 following all the different settings for this simulation run can be found
     -dataset = "choose dataset"
@@ -73,7 +74,7 @@ following all the different settings for this simulation run can be found
 ##########################################################################################################################
 
 #choose working dataset: "australian" or "climate_simulation", "wdbc" -> Breast Cancer Wisconsin (Diagnostic)
-dataset = "australian" 
+_dataset = "wdbc"
 
 """
 # set random state
@@ -84,48 +85,48 @@ tf.random.set_seed(RANDOM_STATE)
 """
 
 # further dataset settings
-standardize_data = True
+_standardize_data = False
 
 
 # settings for visualization
-visiualize_data = True
-visualize_original_predictions = False
-visualize_imputed_predictions = False
+_visiualize_data = True
+_visualize_original_predictions = True
+_visualize_imputed_predictions = True
 
 
 # train or load model
-train_model = True
-save_new_model = False
+_train_model = True
+_save_new_model = True
+_load_model = True
 
-load_model = False
 
 # prediction metrics
-get_original_prediction_metrics = False
-get_imputed_prediction_metrics = False
-get_simulated_prediction_metrics = False
+_get_original_prediction_metrics = True
+_get_imputed_prediction_metrics = True
+_get_simulated_prediction_metrics = True
 
 
 # DATAFRAME_MISS settings - Introduction to missing values in the choosen Dataframe
 # load DataFrame_MISS // if True, an already created one will be loaded, else a new one will be created
-load_dataframe_miss = False
+_load_dataframe_miss = False
 
-MISS_RATE=0.2
+_MISS_RATE=0.5
 
 
 #KDE_VALUES OF EACH COLUMN - affected frames are DATAFRAME_SIMULATE -> Uncertain and DATAFRAME -> Certain/True
-compare_col_kde_distributions = True
+_compare_col_kde_distributions = True
 
 
 # modes for deterministic/stochastic experiments on missing dataframes
 # choose between kde_imputer, SimpleImputer//mean, SimpleImputer//median, SimpleImputer//most_frequent, KNNImputer
-IMPUTE = False
-IMPUTE_METHOD = "SimpleImputer//mean"
+_IMPUTE = True
+_IMPUTE_METHOD = "SimpleImputer//mean"
 
-SIMULATE = True
-SIMULATION_LENGTH = 100
-#SIMULATION_RANGE = None
-SIMULATION_RANGE = range(5, 6, 1)
-simulation_visualizations = True
+_SIMULATE = True
+_SIMULATION_LENGTH = 100
+#_SIMULATION_RANGE = None
+_SIMULATION_RANGE = range(5, 6, 1)
+_simulation_visualizations = True
 
 
 
@@ -138,80 +139,56 @@ simulation_visualizations = True
 
     
 # load data for climate modal simulation crashes dataset
-if dataset == "wdbc":
+if _dataset == "wdbc":
     
-    with open(os.path.join(dataset_path, dataset + ".dat"), 'rb') as DATAFRAME:
+    with open(os.path.join(_dataset_path, _dataset + ".dat"), 'rb') as DATAFRAME:
         DATAFRAME = pd.read_table(DATAFRAME, sep=",", engine='python', header = None)
     
-    # drop the first 
-    y_complete = DATAFRAME.iloc[:,1].copy()
-    DATAFRAME = DATAFRAME.iloc[:, 2:].copy()
-    
+    # drop the first column (contains ids) and move the orig. second colum (contains outcomes) to the end
+    y_complete, DATAFRAME = [DATAFRAME.iloc[:,1].copy(), DATAFRAME.iloc[:, 2:].copy()]
     DATAFRAME = DATAFRAME.merge(y_complete, left_index=True, right_index=True)
     
+    # change string outcome values to type int
     DATAFRAME.iloc[:,-1].replace(['B', 'M'], [0, 1], inplace=True)
+ 
     
-    column_names = ["Attribute: " + str(i) for i in range(len(DATAFRAME.columns))]
-    column_names[-1] = "Outcome"
-    DATAFRAME.columns = column_names
+elif _dataset == "climate_simulation":
     
-    
-    
-    
-# load data for climate modal simulation crashes dataset
-if dataset == "climate_simulation":
-    
-    with open(os.path.join(dataset_path, dataset + ".dat"), 'rb') as DATAFRAME:
+    with open(os.path.join(_dataset_path, _dataset + ".dat"), 'rb') as DATAFRAME:
         DATAFRAME = pd.read_table(DATAFRAME, sep="\s+", engine='python', header = 0)
     
     # drop the first two elements of the dataset -> not relevant
     DATAFRAME = DATAFRAME.iloc[:, 2:]
-
-    original_col_names = DATAFRAME.columns.to_list()
-    
-    # change columns names for simplification
-    column_names = ["Attribute: " + str(i) for i in range(len(DATAFRAME.columns))]
-    column_names[-1] = "Outcome"
-    DATAFRAME.columns = column_names
-
-
-# load data for australian credit card approval dataset
-if dataset == "australian":
-    
-    with open(os.path.join(dataset_path, dataset + ".dat"), 'rb') as DATAFRAME:
-        DATAFRAME = pd.read_table(DATAFRAME, sep=" ", engine="python", header=None)
-    
-    # columns   
-    original_col_names=["Sex", "Age", "Mean time at adresses", "Home status", "Current occupation",
-              "Current job status", "Mean time with employers", "Other investments",
-              "Bank account", "Time with bank", "Liability reference", "Account reference",
-              "Monthly housing expense", "Savings account balance", "0 - Reject / 1 - Accept"]
-    
-    
-    original_col_names = ["0", "1", "2", "3", "4", "5" , "6", "7", "8", "9", "10", "11", "12", "13", "14"]
-    
-    # change columns names for simplification
-    column_names = ["Attribute: " + str(i) for i in range(len(DATAFRAME.columns))]
-    column_names[-1] = "Outcome"
-    DATAFRAME.columns = column_names
     
 
-# load data for predict+students+dropout+and+academic+success dataset
-if dataset == "predict+students+dropout+and+academic+success":
+elif _dataset == "australian":
     
-    with open(os.path.join(dataset_path, dataset + ".csv"), 'rb') as DATAFRAME:
+    with open(os.path.join(_dataset_path, _dataset + ".dat"), 'rb') as DATAFRAME:
+        DATAFRAME = pd.read_table(DATAFRAME, sep=" ", engine="python", header=None)    
+    
+
+elif _dataset == "predict+students+dropout+and+academic+success":
+    
+    with open(os.path.join(_dataset_path, _dataset + ".csv"), 'rb') as DATAFRAME:
         DATAFRAME = pd.read_csv(DATAFRAME, sep=";", engine="python")
 
     # change target names to numerical value
     DATAFRAME.iloc[:,-1].replace(['Dropout', 'Enrolled', "Graduate"], [0, 1, 2], inplace=True)
 
-    # rename columns   
-    column_names_original = DATAFRAME.columns
+
+else:
+    print("No valid dataset found!")
     
+  
     
-    column_names = ["Attribute: " + str(i) for i in range(len(DATAFRAME.columns))]
-    column_names[-1] = "Outcome"
-    DATAFRAME.columns = column_names
+  
+"""
+    change all column names to standardized attribute names
+"""  
+    
+column_names = ["Attribute: " + str(i) for i in range(len(DATAFRAME.columns))]
+column_names[-1] = "Outcome"
+DATAFRAME.columns = column_names    
     
     
 """
@@ -219,9 +196,9 @@ if dataset == "predict+students+dropout+and+academic+success":
     dependend on the dataset - counts possible classes of outcomes
 """
     
-unique_outcomes = len(DATAFRAME.Outcome.unique())
+_unique_outcomes = len(DATAFRAME.Outcome.unique())
 
-
+ 
 
 ##########################################################################################################################
 """
@@ -230,31 +207,34 @@ unique_outcomes = len(DATAFRAME.Outcome.unique())
 ##########################################################################################################################
     
 
-if standardize_data:
-    # use data scaler to norm the data
-    scaler = MinMaxScaler()
+if _standardize_data:
     
-    if unique_outcomes == 2:
+    # use data scaler to norm the data (scaler used = MinMaxSclaer, values between 0 and 1)
+    _scaler = MinMaxScaler()
+    
+    
+    if _unique_outcomes == 2:
         
-        # change to dataframe
-        DATAFRAME = pd.DataFrame(scaler.fit_transform(DATAFRAME))
+        DATAFRAME = pd.DataFrame(_scaler.fit_transform(DATAFRAME))
         DATAFRAME.columns = column_names
         
-    elif unique_outcomes >= 3:
         
-        # change to dataframe
-        # drop outcome --> scale rest of dataframe --> add unscaled outcome back to normal
+    elif _unique_outcomes >= 3:
+        
+        # steps for multi-label dataframe scaling
+        # 1. drop outcome (labels shoud not be scaled)  
         y_complete = DATAFRAME.iloc[:,-1].copy()
         DATAFRAME = DATAFRAME.iloc[:,:-1].copy()
         
-        DATAFRAME = pd.DataFrame(scaler.fit_transform(DATAFRAME))
+        # 2. scale rest of dataframe
+        DATAFRAME = pd.DataFrame(_scaler.fit_transform(DATAFRAME))
         
+        # 3. add unscaled outcome back to scaled dataframe && and column names
         DATAFRAME = DATAFRAME.merge(y_complete, left_index=True, right_index=True)
-        
         DATAFRAME.columns = column_names
 
 
-DATAFRAME_describe = DATAFRAME.describe()
+DATAFRAME_SUMMARY = DATAFRAME.describe()
 
 
 
@@ -266,12 +246,10 @@ DATAFRAME_describe = DATAFRAME.describe()
 ##########################################################################################################################
 
 
-if visiualize_data:
+if _visiualize_data:
     
     # Plotting combined distribution using histograms
-    DATAFRAME.hist(column=column_names, bins=25, figsize=(12, 10), density=False, sharey=False, sharex=True)
-    #plt.xlabel('Sigmoid Activations')
-    #plt.ylabel('Density')
+    DATAFRAME.hist(column=column_names, bins=10, figsize=(20, 12), density=False, sharey=False, sharex=True)
     plt.title('Input without missing data')
     plt.tight_layout()
     plt.show()
@@ -286,18 +264,16 @@ if visiualize_data:
     plt.show()
     """
 
-    
+    # is this relevant ?
     plt.figure(figsize=(12, 6))
     sns.kdeplot(data=np.array(DATAFRAME).flatten(), fill=True)
     plt.xlabel('Values')
     plt.ylabel('Density')
-    plt.title('Combined Dataset KDE Plot')
+    plt.title('Original combined dataset KDE')
     plt.tight_layout()
     plt.show()
     
     
-    
- 
 
 
 ##########################################################################################################################
@@ -310,15 +286,19 @@ if visiualize_data:
 X_complete = DATAFRAME.iloc[:, 0:-1]
 y_complete = DATAFRAME[column_names[-1]]
 
-if unique_outcomes >= 3:
-    y_complete_categorical = keras.utils.to_categorical(y_complete, num_classes=unique_outcomes)
+if _unique_outcomes == 2:
+    X_complete_train, X_complete_test, y_complete_train,  y_complete_test = train_test_split(X_complete, 
+                                                                                             y_complete, 
+                                                                                             test_size=0.25)
 
-
-if unique_outcomes == 2:
-    X_complete_train, X_complete_test, y_complete_train,  y_complete_test = train_test_split(X_complete, y_complete, test_size=0.25)
-
-elif unique_outcomes >= 3:
-    X_complete_train, X_complete_test, y_complete_train,  y_complete_test = train_test_split(X_complete, y_complete_categorical, test_size=0.25)
+elif _unique_outcomes >= 3:
+    
+    # y labels have to be changed to categorical data
+    y_complete_categorical = keras.utils.to_categorical(y_complete, num_classes=_unique_outcomes)
+    
+    X_complete_train, X_complete_test, y_complete_train, y_complete_test = train_test_split(X_complete, 
+                                                                                            y_complete_categorical, 
+                                                                                            test_size=0.25)
 
 
 
@@ -330,25 +310,25 @@ elif unique_outcomes >= 3:
 ##########################################################################################################################
 
 
-if train_model:
+if _train_model:
     
     # layers of the network
-    inputs = keras.Input(shape=(X_complete.shape[1]))
-    x = layers.Dense(32, activation='relu')(inputs)
-    x = layers.Dense(16, activation='relu')(x)
+    _inputs = keras.Input(shape=(X_complete.shape[1]))
+    _x = layers.Dense(32, activation='relu')(_inputs)
+    _x = layers.Dense(16, activation='relu')(_x)
     
     
 
-    if unique_outcomes == 2:
+    if _unique_outcomes == 2:
         
         """
             --> Binary Model 
         """
         
-        outputs = layers.Dense(1, activation='sigmoid')(x)
+        _outputs = layers.Dense(1, activation='sigmoid')(_x)
         
         # build model
-        model = keras.Model(inputs=inputs, outputs=outputs)
+        model = keras.Model(inputs=_inputs, outputs=_outputs)
         
         # compile model
         model.compile(optimizer=keras.optimizers.Adam(),
@@ -363,34 +343,36 @@ if train_model:
                                   epochs=50, 
                                   verbose=0)
         
-        if save_new_model:
+        if _save_new_model:
             # save new model
-            model.save(os.path.join(model_path, dataset + "binary_model"))
+            model.save(os.path.join(_model_path, _dataset + "_binary_model.keras"))
         
     
     
     
-    elif unique_outcomes >= 3:
+    elif _unique_outcomes >= 3:
         
         """
             --> Multivariate Model 
         """
         
-        logits = layers.Dense(unique_outcomes, activation=None)(x)
+        _logits = layers.Dense(_unique_outcomes, activation=None)(_x)
+
         
+        # model with two output heads
+        #   1. Head: outputs the logits without any activation function
+        #   2. Head: outputs a default softmax layer for classification
+        model = keras.Model(inputs=_inputs, outputs={"logits" : _logits,
+                                                    "predictions" : tf.nn.softmax(_logits)})
         
-        model = keras.Model(inputs=inputs, outputs={
-                                                   "logits": tf.nn.sigmoid(logits),
-                                                   "predictions": tf.nn.softmax(logits)
-                                                   })
         
         # compile model
         model.compile(optimizer=keras.optimizers.Adam(),
-                      loss={
-                          "logits": lambda y_true, y_pred: 0.0,
-                          "predictions": keras.losses.CategoricalCrossentropy()
-                          },
+                      loss={"logits": lambda y_true, y_pred: 0.0,
+                            "predictions": keras.losses.CategoricalCrossentropy()},
                       metrics=["accuracy"])
+        
+        
         
         # fit model        
         model_history = model.fit(X_complete_train, 
@@ -400,9 +382,9 @@ if train_model:
                                   epochs=50,
                                   verbose=0)
         
-        if save_new_model:
+        if _save_new_model:
             # save new model
-            model.save(os.path.join(model_path, dataset + "_multi_model"))
+            model.save(os.path.join(_model_path, _dataset + "_multi_model.keras"))
     
     
     # plot model
@@ -416,14 +398,29 @@ if train_model:
 ##########################################################################################################################
 
 
-if load_model:
+if _load_model:
     
-    if unique_outcomes == 2:
-        model = keras.models.load_model(os.path.join(model_path, dataset + "_model"))
+    
+    if _unique_outcomes == 2:
         
-    elif unique_outcomes >= 3:
-        model = keras.models.load_model(os.path.join(model_path, dataset + "_multi_model"))
+        # loading and compiling saved model structure
+        model = keras.models.load_model(os.path.join(_model_path, _dataset + "_binary_model.keras"))
         
+        
+    elif _unique_outcomes >= 3:
+        
+        # load model, but do not compile (because of custom layer). 
+        # Compiling in a second step 
+        model = keras.models.load_model(os.path.join(_model_path, _dataset + "_multi_model.keras"), compile=False)
+        
+        # compile model
+        model.compile(optimizer=keras.optimizers.Adam(),
+                      loss={"logits": lambda y_true, y_pred: 0.0,
+                            "predictions": keras.losses.CategoricalCrossentropy()},
+                      metrics=["accuracy"])
+        
+    
+    # print model summary
     model.summary()
 
 
@@ -431,22 +428,35 @@ if load_model:
 
 ##########################################################################################################################
 # singe prediction metrics with a perfectly trained model - no uncertainties -- deterministic as usual
+"""
+    in the following block, all the standard deterministic predictions on the original dataset can be inspected
+"""
 ##########################################################################################################################
+
 
 print("\nPredictions for complete Dataset without uncertainties:")
 
-if unique_outcomes == 2:
+if _unique_outcomes == 2:
     
+    """
+        #   RESULTS // Original Precictions
+    """
     y_complete_hat = model.predict(X_complete).flatten()
     y_complete_hat_labels = (y_complete_hat>0.5).astype("int32")
-    y_complete_joint = np.stack([y_complete_hat, y_complete_hat_labels], 1)
-    y_complete_joint = pd.DataFrame(y_complete_joint, columns=["sigmoid", "label"])
+    y_complete_hat_label_frequency = pd.Series(y_complete_hat_labels).value_counts()
     
-    if visualize_original_predictions:
+    
+    if _visualize_original_predictions:
         
         # visualize predictions
         plt.figure(figsize=(10, 6))
-        sns.histplot(data=y_complete_joint, x="sigmoid", hue="label", bins=10, stat="density", kde=True, kde_kws={"cut":0})
+        sns.histplot(data={"sigmoid" : y_complete_hat, "label" : y_complete_hat_labels}, 
+                     x="sigmoid", 
+                     hue="label", 
+                     bins=10, 
+                     stat="density", 
+                     kde=False,
+                     kde_kws={"cut":0})
         plt.xlabel('Sigmoid Activations')
         plt.ylabel('Frequency')
         plt.title('True Combined Output Hist Plot')
@@ -454,33 +464,36 @@ if unique_outcomes == 2:
         plt.show()
         
         
+        """ --> redundant
         # visualize predictions
         plt.figure(figsize=(10, 6))
-        sns.kdeplot(data=y_complete_joint, x="sigmoid", hue="label", common_grid=True, cut=0)
+        sns.kdeplot(data={"sigmoid" : y_complete_hat, "label" : y_complete_hat_labels}, 
+                    x="sigmoid", 
+                    hue="label", 
+                    common_grid=True, 
+                    cut=0)
         plt.xlabel('Sigmoid Activations')
         plt.ylabel('Density')
         plt.title('True Combined Output Density Plot')
         plt.tight_layout()
         plt.show()
+        """
     
     
     
-    
-elif unique_outcomes >= 3:
+elif _unique_outcomes >= 3:
     
     y_complete_hat = model.predict(X_complete)
-    
     y_complete_hat_labels = np.argmax(y_complete_hat["predictions"], axis=1)
-    
+    y_complete_hat_label_frequency = pd.Series(y_complete_hat_labels).value_counts()
 
-    #y_complete_joint = np.stack([y_complete_hat, y_complete_hat_labels], 1)
-    #y_complete_joint = pd.DataFrame(y_complete_joint, columns=["softmax", "label"])
-
-
-    if visualize_original_predictions:
+    if _visualize_original_predictions:
+        
         # visualize predictions
         plt.figure(figsize=(10, 6))
-        sns.histplot(data=y_complete_hat_labels, bins=10, stat="count")
+        sns.histplot(data=y_complete_hat_labels, 
+                     bins=10, 
+                     stat="count")
         plt.xlabel('Softmax Activations')
         plt.ylabel('Frequency')
         plt.title('True Combined Output Hist Plot')
@@ -490,70 +503,95 @@ elif unique_outcomes >= 3:
 
 
 
-if get_original_prediction_metrics:
+if _get_original_prediction_metrics:
     
-    if unique_outcomes == 2:
+    if _unique_outcomes == 2:
+        
         utils.create_metrics(y_complete, y_complete_hat_labels)
         plt.show()
-
-
+    """
+    elif _unique_outcomes >= 3:
+        utils.create_metrics(y_complete, y_complete_hat_labels)
+        plt.show()
+    """
 
 
 ##########################################################################################################################
 # introduce missing data - aka. aleatoric uncertainty
+"""
+    Here in this step a new DATAFRAME is introduced. This contains missing data with a specific missing rate in each row
+"""
 ##########################################################################################################################
 
-if load_dataframe_miss:
+
+# second part is a statement to check if a dataframe really exists and if not, a new one will be created even if load is true
+if _load_dataframe_miss and Path(os.path.join(_dataset_path, "miss_frames", _dataset, _dataset + "_miss_rate_" + str(_MISS_RATE) + ".dat")).exists():
   
-    DATAFRAME_MISS = pd.read_pickle(os.path.join(dataset_path, "miss_frames", dataset, dataset + "_miss_rate_" + str(MISS_RATE) + ".dat"))    
-    
-    
-    if visiualize_data:
-        
-        # Plotting combined distribution using histograms
-        DATAFRAME_MISS.hist(column=column_names, bins=15, figsize=(12, 10), density=True)
-        #plt.xlabel('Sigmoid Activations')
-        #plt.ylabel('Density')
-        plt.title('Input with missing data')
-        plt.tight_layout()
-        plt.show()
+    """
+        already created DATAFRAME_MISS will be loaded
+    """
+
+    DATAFRAME_MISS = pd.read_pickle(os.path.join(_dataset_path, "miss_frames", _dataset, _dataset + "_miss_rate_" + str(_MISS_RATE) + ".dat"))    
     
 else:
     
-
-    DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :-1], miss_rate=MISS_RATE) 
+    """
+        a new DATAFRAME_MISS will be created and saved
+    """
+    
+    # if folder does not exist, create a new one
+    if Path(os.path.join(_dataset_path, "miss_frames", _dataset)).exists() == False:
+        os.mkdir(os.path.join(_dataset_path, "miss_frames", _dataset)) 
+    
+    
+    DATAFRAME_MISS = utils.add_missing_values(DATAFRAME.iloc[:, :-1], miss_rate=_MISS_RATE) 
     DATAFRAME_MISS = DATAFRAME_MISS.merge(DATAFRAME.iloc[:,-1], left_index=True, right_index=True)
 
+    # save DATAFRAME_MISS to pickle.dat 
+    DATAFRAME_MISS.to_pickle(os.path.join(_dataset_path, "miss_frames", _dataset, _dataset + "_miss_rate_" + str(_MISS_RATE) + ".dat"))
     
-    # save DATAFRAME_MISS to pickle.dat for better comparison
-    DATAFRAME_MISS.to_pickle(os.path.join(dataset_path, "miss_frames", dataset, dataset + "_miss_rate_" + str(MISS_RATE) + ".dat"))
-    
-        
         
 
-    if visiualize_data:
-        
-        # Plotting combined distribution using histograms
-        DATAFRAME_MISS.hist(column=column_names, bins=15, figsize=(12, 10), density=True)
-        #plt.xlabel('Sigmoid Activations')
-        #plt.ylabel('Density')
-        plt.title('Input with missing data')
-        plt.tight_layout()
-        plt.show()
-        
-        
-        plt.figure(figsize=(12, 6))
-        sns.kdeplot(data=np.array(DATAFRAME_MISS).flatten(), fill=True)
-        plt.xlabel('Values')
-        plt.ylabel('Density')
-        plt.title('Combined Dataset KDE Plot')
-        plt.tight_layout()
-        plt.show()
+
+# get statistics of DATAFRAME_MISS
+DATAFRAME_MISS_SUMMARY = DATAFRAME_MISS.describe()
+
+
+
+
+if _visiualize_data:
+    
+    # Plotting combined distribution using histograms
+    DATAFRAME_MISS.hist(column=column_names, 
+                        bins=10, 
+                        figsize=(20, 12), 
+                        density=False, 
+                        sharey=False, 
+                        sharex=True)
+    plt.title('Input without missing data')
+    plt.tight_layout()
+    plt.show()
+    
+    
+    # comparison of original and uncertain DATAFRAME    
+    plt.figure(figsize=(12, 6))
+    sns.kdeplot(data={"DATAFRAME_KDE" : np.array(DATAFRAME).flatten(), 
+                      "DATAFRAME_MISS_KDE" : np.array(DATAFRAME_MISS).flatten()}, 
+                fill=False, 
+                common_grid=True)
+    plt.xlabel('Values')
+    plt.ylabel('Density')
+    plt.title('Original & Uncertain Dataset KDE comparison')
+    plt.tight_layout()
+    plt.show()
+    
+
     
     
 ##########################################################################################################################
 # Count missing data
 ##########################################################################################################################
+
 
 count_missing = DATAFRAME_MISS.isnull().sum().sum()
 print("\nCount of missing values:", count_missing, "\n")
@@ -580,44 +618,43 @@ print("\nCount of missing values:", count_missing, "\n")
 ##########################################################################################################################
     
     
-if IMPUTE and IMPUTE_METHOD == "SimpleImputer//mean":
+if _IMPUTE and _IMPUTE_METHOD == "SimpleImputer//mean":
     DATAFRAME_IMPUTE = DATAFRAME_MISS.copy()
     
-    simp_imp = SimpleImputer(strategy="mean")
-    DATAFRAME_IMPUTE = pd.DataFrame(simp_imp.fit_transform(DATAFRAME_IMPUTE), columns=column_names)
+    _simp_imp = SimpleImputer(strategy="mean")
+    DATAFRAME_IMPUTE = pd.DataFrame(_simp_imp.fit_transform(DATAFRAME_IMPUTE), columns=column_names)
     
     
-elif IMPUTE and IMPUTE_METHOD == "SimpleImputer//median":
+elif _IMPUTE and _IMPUTE_METHOD == "SimpleImputer//median":
     DATAFRAME_IMPUTE = DATAFRAME_MISS.copy()
     
-    simp_imp = SimpleImputer(strategy="median")
-    DATAFRAME_IMPUTE = pd.DataFrame(simp_imp.fit_transform(DATAFRAME_IMPUTE), columns=column_names)
+    _simp_imp = SimpleImputer(strategy="median")
+    DATAFRAME_IMPUTE = pd.DataFrame(_simp_imp.fit_transform(DATAFRAME_IMPUTE), columns=column_names)
 
 
-elif IMPUTE and IMPUTE_METHOD == "SimpleImputer//most_frequent":
+elif _IMPUTE and _IMPUTE_METHOD == "SimpleImputer//most_frequent":
     DATAFRAME_IMPUTE = DATAFRAME_MISS.copy()
     
-    simp_imp = SimpleImputer(strategy="most_frequent")
-    DATAFRAME_IMPUTE = pd.DataFrame(simp_imp.fit_transform(DATAFRAME_IMPUTE), columns=column_names)
+    _simp_imp = SimpleImputer(strategy="most_frequent")
+    DATAFRAME_IMPUTE = pd.DataFrame(_simp_imp.fit_transform(DATAFRAME_IMPUTE), columns=column_names)
     
     
-elif IMPUTE and IMPUTE_METHOD == "KNNImputer":
+elif _IMPUTE and _IMPUTE_METHOD == "KNNImputer":
     DATAFRAME_IMPUTE = DATAFRAME_MISS.iloc[:,:-1].copy()
     
-    knn_imp = KNNImputer(n_neighbors=5)
-    DATAFRAME_IMPUTE = pd.DataFrame(knn_imp.fit_transform(DATAFRAME_IMPUTE), columns=column_names)
+    _knn_imp = KNNImputer(n_neighbors=5)
+    DATAFRAME_IMPUTE = pd.DataFrame(_knn_imp.fit_transform(DATAFRAME_IMPUTE), columns=column_names)
     
     
     
-if SIMULATE:
+if _SIMULATE:
     DATAFRAME_SIMULATE = DATAFRAME_MISS.copy()
-    SIMULATE_METHOD = "KDE_Simulation"
+    _SIMULATE_METHOD = "KDE_Simulation"
 
 
 # exit if statement if no further simulations will be made
-if IMPUTE == False and SIMULATE == False:
+if _IMPUTE == False and _SIMULATE == False:
     sys.exit()
-
 
 
 
@@ -626,85 +663,118 @@ if IMPUTE == False and SIMULATE == False:
 # experiments modul 1 - with imputation --> full data --> get_predictions
 ##########################################################################################################################
 
-if IMPUTE:
+if _IMPUTE:
     
     print("\nPredictions for uncertain Dataset with uncertainties and imputed values:")
     
     X_impute = DATAFRAME_IMPUTE.iloc[:, 0:-1]
     
-    if unique_outcomes == 2:
+    if _unique_outcomes == 2:
         
         y_impute_hat = model.predict(X_impute).flatten()
         y_impute_hat_labels = (y_impute_hat>0.5).astype("int32")
-        y_impute_joint = np.stack([y_impute_hat, y_impute_hat_labels], 1)
-        y_impute_joint = pd.DataFrame(y_impute_joint, columns=["sigmoid", "label"])
+        y_impute_hat_label_frequency = pd.Series(y_impute_hat_labels).value_counts()
         
-        
-        if visualize_imputed_predictions:
+        if _visualize_imputed_predictions:
+            
             # visualize predictions
             plt.figure(figsize=(10, 6))
-            sns.histplot(data=y_impute_joint, x="sigmoid", hue="label", bins=10, stat="density", kde=False, kde_kws={"cut":0})
+            sns.histplot(data={"sigmoid" : y_impute_hat, "label" : y_impute_hat_labels}, 
+                         x="sigmoid", hue="label", 
+                         bins=10, 
+                         stat="density", 
+                         kde=False, 
+                         kde_kws={"cut":0})
             plt.xlabel('Sigmoid Activations')
             plt.ylabel('Frequency')
-            plt.title(f'Uncertain (deter.) Combined Output Hist Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
+            plt.title(f'Uncertain (deter.) Combined Output Hist Plot - Miss-Rate: {_MISS_RATE} - Impute-Method: {_IMPUTE_METHOD}')
             plt.tight_layout()
             plt.show()
             
             
             # visualize predictions
             plt.figure(figsize=(10, 6))
-            sns.kdeplot(data=y_impute_joint, x="sigmoid", hue="label", common_grid=True, cut=0)
+            sns.kdeplot(data={"sigmoid" : y_impute_hat, "label" : y_impute_hat_labels}, 
+                        x="sigmoid", 
+                        hue="label", 
+                        common_grid=True, 
+                        cut=0)
             plt.xlabel('Sigmoid Activations')
             plt.ylabel('Density')
-            plt.title(f'Uncertain Combined Output Density Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
+            plt.title(f'Uncertain Combined Output Density Plot - Miss-Rate: {_MISS_RATE} - Impute-Method: {_IMPUTE_METHOD}')
             plt.tight_layout()
             plt.show()
 
-
+            """
             # compare imputation method against true distribution
             y_compare_joint = pd.concat([y_complete_joint, y_impute_joint], axis=1, ignore_index=True, sort=False)
             y_compare_joint.columns = ["True_Sigmoid", "True_Label", "Imputed_Sigmoid", "Imputed_Label"]
             y_compare_sigs = pd.DataFrame(data=[y_compare_joint["True_Sigmoid"], y_compare_joint["Imputed_Sigmoid"]]).transpose()
+
             
             plt.figure(figsize=(10, 6))
             #sns.kdeplot(data=y_compare_sigs, common_grid=True, cut=0)
-            sns.histplot(data=y_compare_sigs, bins=15)
+            sns.histplot(data={"True_Sigmoid" : y_complete_hat["predictions"]}, bins=15)
             plt.xlabel('Sigmoid Activations')
             plt.ylabel('Density')
             plt.title(f'True/Uncertain(deter.) Sigmoid Comparison Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
             plt.tight_layout()
             plt.show()
+            """
         
         
-        
-    elif unique_outcomes >= 3:
+    elif _unique_outcomes >= 3:
         
         y_impute_hat = model.predict(X_impute)
         y_impute_hat_labels = np.argmax(y_impute_hat["predictions"], axis=1)
-        
-        #y_impute_joint = np.stack([y_impute_hat, y_impute_hat_labels], 1)
-        #y_impute_joint = pd.DataFrame(y_impute_joint, columns=["sigmoid", "label"])
-        
-        
-        if visualize_imputed_predictions:
+        y_impute_hat_label_frequency = pd.Series(y_impute_hat_labels).value_counts()
+            
+        if _visualize_imputed_predictions:
+            
             # visualize predictions
             plt.figure(figsize=(10, 6))
             sns.histplot(data=y_impute_hat_labels, bins=10, stat="count", kde=False, kde_kws={"cut":0})
             plt.xlabel('Softmax Activations')
             plt.ylabel('Frequency')
-            plt.title(f'Uncertain (deter.) Combined Output Hist Plot - Miss-Rate: {MISS_RATE} - Impute-Method: {IMPUTE_METHOD}')
+            plt.title(f'Uncertain (deter.) Combined Output Hist Plot - Miss-Rate: {_MISS_RATE} - Impute-Method: {_IMPUTE_METHOD}')
             plt.tight_layout()
             plt.show()
 
+
+
     
-    if get_imputed_prediction_metrics:
+    if _get_imputed_prediction_metrics:
         
-        if unique_outcomes == 2:
+        if _unique_outcomes == 2:
+            
             utils.create_metrics(y_complete, y_impute_hat_labels)
             plt.show()
+        """   
+        elif _unique_outcomes >= 3:
+            
+            utils.create_metrics(y_complete, y_impute_hat_labels)
+            plt.show()
+        """
 
 
 
+
+##########################################################################################################################
+# Full Comparison # TODO
+##########################################################################################################################
+
+# comparisons over attributes without outcome values
+
+"""
+    These are mean values over the mean of all attributes of the datasets
+"""
+
+DATAFRAME_COMPARISON_SUMMARY = {"DATAFRAME mean count." : DATAFRAME_SUMMARY.loc["count"].mean(),
+                                "DATAFRAME mean" : DATAFRAME_SUMMARY.loc["mean"].mean(), 
+                                "DATAFRAME std" : DATAFRAME_SUMMARY.loc["std"].mean(),
+                                "DATAFRAME_MISS mean count." : DATAFRAME_MISS_SUMMARY.loc["count"].mean(),
+                                "DATAFRAME_MISS mean" : DATAFRAME_MISS_SUMMARY.loc["mean"].mean(),
+                                "DATAFRAME_MISS std" : DATAFRAME_MISS_SUMMARY.loc["std"].mean()}
 
 
 ##########################################################################################################################
@@ -712,7 +782,7 @@ if IMPUTE:
 ##########################################################################################################################
 
 
-if SIMULATE:
+if _SIMULATE:
     
     """
         KDE COLLECTION -- ORIGINAL 
@@ -752,7 +822,7 @@ if SIMULATE:
             --> good for analyzing the differences between the two distribtions
         """
         
-        if compare_col_kde_distributions:
+        if _compare_col_kde_distributions:
             # Print the KernelDensity parameters for the current column
             #print(f"Column: {column}")            
     
@@ -764,7 +834,7 @@ if SIMULATE:
             sns.kdeplot(data=data_visualization_joint, common_grid=True)
             plt.xlabel(column)
             plt.ylabel('Density')
-            plt.title(f'KDE Plot of Column: {column} - Miss-Rate: {MISS_RATE} - Method: {SIMULATE_METHOD}')
+            plt.title(f'KDE Plot of Column: {column} - Miss-Rate: {_MISS_RATE} - Method: {_SIMULATE_METHOD}')
             plt.tight_layout()
             plt.show()
         
