@@ -80,7 +80,7 @@ _dataset = "wdbc"
 
 # set random state          # TODO fix RANOMSTATE and check if tensorflow random seed works
 _RANDOM_STATE = 24
-tf.random.set_seed(_RANDOM_STATE)
+#tf.random.set_seed(_RANDOM_STATE)
 """
 np.random.seed(RANDOM_STATE)
 np.random.RandomState(RANDOM_STATE)
@@ -99,8 +99,8 @@ _visualize_imputed_predictions = True
 
 
 # train or load model
-_train_model = True
-_save_new_model = True
+_train_model = False
+_save_new_model = False
 _load_model = True
 
 
@@ -294,7 +294,8 @@ y_complete = DATAFRAME[column_names[-1]]
 if _unique_outcomes == 2:
     X_complete_train, X_complete_test, y_complete_train,  y_complete_test = train_test_split(X_complete, 
                                                                                              y_complete, 
-                                                                                             test_size=0.25)
+                                                                                             test_size=0.25,
+                                                                                             random_state=_RANDOM_STATE)
 
 elif _unique_outcomes >= 3:
     
@@ -303,7 +304,8 @@ elif _unique_outcomes >= 3:
     
     X_complete_train, X_complete_test, y_complete_train, y_complete_test = train_test_split(X_complete, 
                                                                                             y_complete_categorical, 
-                                                                                            test_size=0.25)
+                                                                                            test_size=0.25,
+                                                                                            random_state=_RANDOM_STATE)
 
 
 
@@ -554,8 +556,7 @@ else:
     # save DATAFRAME_MISS to pickle.dat 
     DATAFRAME_MISS.to_pickle(os.path.join(_dataset_path, "miss_frames", _dataset, _dataset + "_miss_rate_" + str(_MISS_RATE) + ".dat"))
     
-#TODO
-sys.exit()
+
 
 # get statistics of DATAFRAME_MISS
 DATAFRAME_MISS_SUMMARY = DATAFRAME_MISS.describe()
@@ -765,13 +766,15 @@ if _IMPUTE:
 
 ##########################################################################################################################
 # Full Comparison # TODO
+# TODO
+# TODO
 ##########################################################################################################################
 
 # comparisons over attributes without outcome values
 
 """
     These are mean values over the mean of all attributes of the datasets
-"""
+
 
 DATAFRAME_COMPARISON_SUMMARY = {"DATAFRAME mean count." : DATAFRAME_SUMMARY.loc["count"].mean(),
                                 "DATAFRAME mean" : DATAFRAME_SUMMARY.loc["mean"].mean(), 
@@ -780,7 +783,7 @@ DATAFRAME_COMPARISON_SUMMARY = {"DATAFRAME mean count." : DATAFRAME_SUMMARY.loc[
                                 "DATAFRAME_MISS mean" : DATAFRAME_MISS_SUMMARY.loc["mean"].mean(),
                                 "DATAFRAME_MISS std" : DATAFRAME_MISS_SUMMARY.loc["std"].mean()}
 
-
+"""
 ##########################################################################################################################
 # experiments module 2 -- col wise simulations ----------> get kde values of dataframe
 ##########################################################################################################################
@@ -798,9 +801,9 @@ if _SIMULATE:
     kde_collection_original = []
     
     for _column in column_names:
-        values = DATAFRAME[_column].values
+        _column_values = DATAFRAME[_column].values
         
-        kde = stats.gaussian_kde(values)   
+        kde = stats.gaussian_kde(_column_values)   
         kde_collection_original.append(kde)
         
         
@@ -817,9 +820,9 @@ if _SIMULATE:
     kde_collection_uncertain = []
     
     for _column in column_names:
-        values = DATAFRAME_SIMULATE[_column].dropna().values
+        _column_values = DATAFRAME_SIMULATE[_column].dropna().values
         
-        kde = stats.gaussian_kde(values)   
+        kde = stats.gaussian_kde(_column_values)   
         kde_collection_uncertain.append(kde)
         
         
@@ -938,7 +941,7 @@ plt.show()
 """
 
 
-#TODO
+
 ##########################################################################################################################
 # experiments modul 2 - with simulation --> missing data (row wise) --> useage of kde of columns to simulate outcome
 ##########################################################################################################################
@@ -956,6 +959,9 @@ if _SIMULATE == True:
     
     original_simulation_history_mean = []
     original_simulation_history_mean_labels = []  
+        
+    # index is equal to collected row results 
+    SIMULATION_RESULTS = []
     
     
     """
@@ -972,20 +978,20 @@ if _SIMULATE == True:
         _SIMULATION_RANGE = range(len(DATAFRAME_SIMULATE))
     
     
-    for i in tqdm(_SIMULATION_RANGE):
+    for row in tqdm(_SIMULATION_RANGE):
         
         """
             # step 1: get current row to perform simulation with
         """
-        DATAFRAME_SIMULATE_ROW = pd.DataFrame(DATAFRAME_SIMULATE.loc[i])
+        DATAFRAME_SIMULATE_ROW = pd.DataFrame(DATAFRAME_SIMULATE.loc[row])
         
         
         """
             # step 2: find all the attributes with nan values and save to variable as keys for the kde-dictionary
         """
         
-        inds_to_key = np.where(DATAFRAME_SIMULATE_ROW.isna().all(axis=1))[0]
-        inds_to_key = [column_names[i] for i in inds_to_key]
+        uncertain_attributes = np.where(DATAFRAME_SIMULATE_ROW.isna().all(axis=1))[0]
+        uncertain_attributes = [column_names[i] for i in uncertain_attributes]
     
         """
             # step 3: sample a value from the specific kde of the missing value - aka. beginning of MonteCarlo Simulation
@@ -995,20 +1001,20 @@ if _SIMULATE == True:
         uncertain_sample_collection = []
         original_sample_collection = [] 
         
-        for key in inds_to_key:
+        for _key in uncertain_attributes:
             
-            _uncertain_sample = kde_collection_uncertain[key].resample(_SIMULATION_LENGTH)
-            _original_sample = kde_collection_original[key].resample(_SIMULATION_LENGTH)
+            _uncertain_sample = kde_collection_uncertain[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE)
+            _original_sample = kde_collection_original[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE)
           
             uncertain_sample_collection.append(_uncertain_sample.flatten())
             original_sample_collection.append(_original_sample.flatten())
         
     
         uncertain_sample_collection = pd.DataFrame(uncertain_sample_collection).transpose()
-        uncertain_sample_collection.columns = inds_to_key
+        uncertain_sample_collection.columns = uncertain_attributes
     
         original_sample_collection = pd.DataFrame(original_sample_collection).transpose()
-        original_sample_collection.columns = inds_to_key
+        original_sample_collection.columns = uncertain_attributes
     
     
         """
@@ -1016,20 +1022,20 @@ if _SIMULATE == True:
             # index length of DATAFRAME_MISS_ROW is now equal to number of simulations
         """
         
-        DATAFRAME_MC_SIMULATION = DATAFRAME_SIMULATE_ROW.copy().transpose()
-        DATAFRAME_MC_SIMULATION = pd.concat([DATAFRAME_MC_SIMULATION] * _SIMULATION_LENGTH, ignore_index=True)
+        _DATAFRAME_MC_FOUNDATION = DATAFRAME_SIMULATE_ROW.copy().transpose()
+        _DATAFRAME_MC_FOUNDATION = pd.concat([_DATAFRAME_MC_FOUNDATION] * _SIMULATION_LENGTH, ignore_index=True)
         
         
         # basis dataframe used for uncertain kde simulation
-        DATAFRAME_MC_UNCERTAIN_KDE_SIMULATION = DATAFRAME_MC_SIMULATION.copy()
+        DATAFRAME_MC_UNCERTAIN_KDE_SIMULATION = _DATAFRAME_MC_FOUNDATION.copy()
         
         
         # basis dataframe used for original (true) kde simulation
-        DATAFRAME_MC_ORIGINAL_KDE_SIMULATION = DATAFRAME_MC_SIMULATION.copy()
+        DATAFRAME_MC_ORIGINAL_KDE_SIMULATION = _DATAFRAME_MC_FOUNDATION.copy()
         
         
         # replace the missing values of DATAFRAME_MISS_ROW/ (now MC_SIMULATION) with the created samples 
-        for _col in inds_to_key:
+        for _col in uncertain_attributes:
             
             DATAFRAME_MC_UNCERTAIN_KDE_SIMULATION[_col] = uncertain_sample_collection[_col]
             DATAFRAME_MC_ORIGINAL_KDE_SIMULATION[_col] = original_sample_collection[_col]
@@ -1063,9 +1069,6 @@ if _SIMULATE == True:
             y_uncertain_simulation_hat_std = y_uncertain_simulation_hat.std()
             
             
-            y_uncertain_simulation_joint = np.stack([y_uncertain_simulation_hat, y_uncertain_simulation_hat_labels], 1)
-            y_uncertain_simulation_joint = pd.DataFrame(y_uncertain_simulation_joint, columns=["sigmoid", "label"])
-        
             # simulation history appendix
             uncertain_simulation_history_mean.append(y_uncertain_simulation_hat_mean)
             uncertain_simulation_history_mean_labels.append((y_uncertain_simulation_hat_mean>0.5).astype("int32"))
@@ -1084,9 +1087,6 @@ if _SIMULATE == True:
             y_original_simulation_hat_mean = y_original_simulation_hat.mean()
             y_original_simulation_hat_std = y_original_simulation_hat.std()
             
-            y_original_simulation_joint = np.stack([y_original_simulation_hat, y_original_simulation_hat_labels], 1)
-            y_original_simulation_joint = pd.DataFrame(y_original_simulation_joint, columns=["sigmoid", "label"])
-        
             # simulation history appendix
             original_simulation_history_mean.append(y_original_simulation_hat_mean)
             original_simulation_history_mean_labels.append((y_original_simulation_hat_mean>0.5).astype("int32"))
@@ -1095,49 +1095,96 @@ if _SIMULATE == True:
 
             """
                 combined statistics/metrics of the kde curve found inside of the simulated predictions
+                    ---> kde analysis
             """
             
             #x-axis ranges from 0 and 1 with .001 steps
-            x_axis = np.arange(0.0, 1.0, 0.001)
+            _x_axis = np.arange(0.0, 1.0, 0.001)
             
             #### uncertain kde curve
-            uncertain_kde_pdfs = stats.gaussian_kde(y_uncertain_simulation_hat).pdf(x_axis) 
+            _uncertain_kde_pdfs = stats.gaussian_kde(y_uncertain_simulation_hat).pdf(_x_axis) 
 
-            uncertain_kde_density_peak_indices = scipy.signal.find_peaks(uncertain_kde_pdfs)
-            uncertain_kde_density_peak_pdf = [uncertain_kde_pdfs[i] for i in uncertain_kde_density_peak_indices[0]]
+            _uncertain_kde_density_peak_indices = scipy.signal.find_peaks(_uncertain_kde_pdfs)
+            _uncertain_kde_density_peak_pdf = [_uncertain_kde_pdfs[i] for i in _uncertain_kde_density_peak_indices[0]]
             
-            uncertain_kde_stats = {int(uncertain_kde_density_peak_indices[0][i]) : uncertain_kde_density_peak_pdf[i] for i in range(len(uncertain_kde_density_peak_indices[0]))}
+            _uncertain_kde_stats = {int(_uncertain_kde_density_peak_indices[0][i]) : _uncertain_kde_density_peak_pdf[i] for i in range(len(_uncertain_kde_density_peak_indices[0]))}
             
             
             #### origninal kde curve
-            original_kde_pdfs = stats.gaussian_kde(y_original_simulation_hat).pdf(x_axis) 
+            _original_kde_pdfs = stats.gaussian_kde(y_original_simulation_hat).pdf(_x_axis) 
             
-            original_kde_density_peak_indices = scipy.signal.find_peaks(original_kde_pdfs)
-            original_kde_density_peak_pdf = [original_kde_pdfs[i] for i in original_kde_density_peak_indices[0]]
+            _original_kde_density_peak_indices = scipy.signal.find_peaks(_original_kde_pdfs)
+            _original_kde_density_peak_pdf = [_original_kde_pdfs[i] for i in _original_kde_density_peak_indices[0]]
             
-            origninal_kde_stats = {int(original_kde_density_peak_indices[0][i]) : original_kde_density_peak_pdf[i] for i in range(len(original_kde_density_peak_indices[0]))}
+            _original_kde_stats = {int(_original_kde_density_peak_indices[0][i]) : _original_kde_density_peak_pdf[i] for i in range(len(_original_kde_density_peak_indices[0]))}
             
+
+            """
+                #append simulation row results
+            """
+            
+            SIMULATION_RESULTS.append({
+                "0_Overall Row Data" : {
+                    "0.1_row_id" : row,
+                    "0.2_uncertain_attributes" : uncertain_attributes,
+                    "0.3_DATAFRAME_FOUNDATION" : _DATAFRAME_MC_FOUNDATION
+                    },
+                "1_Uncertain Simulation Collection" : {
+                    "a.a_x_input_values" : X_uncertain_simulation,
+                    "1.1_y_simulation_hat" : y_uncertain_simulation_hat,
+                    "1.2_y_simulation_hat_labels" : y_uncertain_simulation_hat_labels,
+                    "a.a_simulation_mean" : y_uncertain_simulation_hat_mean,
+                    "a.a_simulation_std" : y_uncertain_simulation_hat_std,
+                    "a.a_kde_pdfs" : _uncertain_kde_pdfs,
+                    "a.a_kde_peaks_and_indices" : _uncertain_kde_stats
+                    },
+                "2_Original Simulation Collection" : {
+                    "a.a_x_input_values" : X_original_simulation,
+                    "2.1_y_simulation_hat" : y_original_simulation_hat,
+                    "2.2_y_simulation_hat_labels" : y_original_simulation_hat_labels,
+                    "a.a_simulation_mean" : y_original_simulation_hat_mean,
+                    "a.a_simulation_std" : y_original_simulation_hat_std,
+                    "a.a_kde_pdfs" : _original_kde_pdfs,
+                    "a.a_kde_peaks_and_indices" : _original_kde_stats
+                    }
+                })
+                
+
+
+
+                    
+                    
+                
 
             # visualizations for binary simulation // comparison plots
             if _simulation_visualizations:
     
                 """
-                    Plot_5.1.a: Histogam which shows the simulated row sigmoid results with hue 
+                    Plot_5.1.a: Histogam which shows the uncertain kde simulated row sigmoid results with hue 
                 """
                 # visualize predictions with hist plots
                 plt.figure(figsize=(10, 6))
-                sns.histplot(data=y_uncertain_simulation_joint, x="sigmoid", hue="label", hue_order=[0, 1], bins=15, binrange=(0, 1), stat="count", kde=False, kde_kws={"cut":0})
+                sns.histplot(data={"sigmoid" : y_uncertain_simulation_hat,
+                                   "label" : y_uncertain_simulation_hat_labels}, 
+                             x="sigmoid", 
+                             hue="label", 
+                             hue_order=[0, 1], 
+                             bins=15, 
+                             binrange=(0, 1), 
+                             stat="count", 
+                             kde=False, 
+                             kde_kws={"cut":0})
                 
-                plt.axvline(x=y_complete[i], linewidth=4, linestyle = "-", color = "green", label="Original Label")
-                plt.axvline(x=y_complete_hat_labels[i], linewidth=4, linestyle = "-", color = "red", label="Predicted Model Label")
+                plt.axvline(x=y_complete[row], linewidth=4, linestyle = "-", color = "green", label="Original Label")
+                plt.axvline(x=y_complete_hat_labels[row], linewidth=4, linestyle = "-", color = "red", label="Predicted Model Label")
                 
                 if _IMPUTE:
-                    plt.axvline(x=y_impute_hat[i], linewidth=2, linestyle = "--", color = "purple", label="Imputated Prediction") # impute prediction
+                    plt.axvline(x=y_impute_hat[row], linewidth=2, linestyle = "--", color = "purple", label="Imputated Prediction") # impute prediction
                 
                 plt.axvline(x=y_original_simulation_hat_mean, linewidth=2, linestyle = "-.", color = "black", label="Orig. Mean Sim. Value") # orig. simulation prediction mean
                 plt.axvline(x=y_uncertain_simulation_hat_mean, linewidth=2, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value") # uncert. simulation prediction mean
                 
-                plt.title(f'Row: {i} Uncertain KDE Sim. Output Hist Plot - Miss-Rate: {_MISS_RATE}')
+                plt.title(f'Row: {row} Uncertain KDE Sim. Output Hist Plot - Miss-Rate: {_MISS_RATE}')
                 plt.legend(["Original Label", "Predicted Model Label", "Imputated Prediction", "Orig. Mean Sim. Value", "Uncert. Mean Sim. Value", "Label 1", "Label 0"])
                 plt.xlabel('Sigmoid Activations')
                 plt.ylabel('Frequency')
@@ -1145,23 +1192,33 @@ if _SIMULATE == True:
                 plt.show()
         
         
+        
                 """
-                    Plot_5.1.b: Histogam which shows the simulated row sigmoid results with hue 
+                    Plot_5.1.b: Histogam which shows the original kde simulated row sigmoid results with hue 
                 """
                 # visualize predictions with hist plots
                 plt.figure(figsize=(10, 6))
-                sns.histplot(data=y_original_simulation_joint, x="sigmoid", hue="label", hue_order=[0, 1], bins=15, binrange=(0, 1), stat="count", kde=False, kde_kws={"cut":0})
+                sns.histplot(data={"sigmoid" : y_original_simulation_hat,
+                                   "label" : y_original_simulation_hat_labels}, 
+                             x="sigmoid", 
+                             hue="label", 
+                             hue_order=[0, 1], 
+                             bins=15, 
+                             binrange=(0, 1), 
+                             stat="count", 
+                             kde=False, 
+                             kde_kws={"cut":0})
                 
-                plt.axvline(x=y_complete[i], linewidth=4, linestyle = "-", color = "green", label="Original Label")
-                plt.axvline(x=y_complete_hat_labels[i], linewidth=4, linestyle = "-", color = "red", label="Predicted Model Label")
+                plt.axvline(x=y_complete[row], linewidth=4, linestyle = "-", color = "green", label="Original Label")
+                plt.axvline(x=y_complete_hat_labels[row], linewidth=4, linestyle = "-", color = "red", label="Predicted Model Label")
                 
                 if _IMPUTE:
-                    plt.axvline(x=y_impute_hat[i], linewidth=2, linestyle = "--", color = "purple", label="Imputated Prediction") # impute prediction
+                    plt.axvline(x=y_impute_hat[row], linewidth=2, linestyle = "--", color = "purple", label="Imputated Prediction") # impute prediction
                 
                 plt.axvline(x=y_original_simulation_hat_mean, linewidth=2, linestyle = "-.", color = "black", label="Orig. Mean Sim. Value") # orig. simulation prediction mean
                 plt.axvline(x=y_uncertain_simulation_hat_mean, linewidth=2, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value") # uncert. simulation prediction mean
                 
-                plt.title(f'Row: {i} Original KDE Sim. Output Hist Plot - Miss-Rate: {_MISS_RATE}')
+                plt.title(f'Row: {row} Original KDE Sim. Output Hist Plot - Miss-Rate: {_MISS_RATE}')
                 plt.legend(["Original Label", "Predicted Model Label", "Imputated Prediction", "Orig. Mean Sim. Value", "Uncert. Mean Sim. Value", "Label 1", "Label 0"])
                 plt.xlabel('Sigmoid Activations')
                 plt.ylabel('Frequency')
@@ -1174,22 +1231,24 @@ if _SIMULATE == True:
                 """
 
                 #plot normal distribution with mean and std of simulated values
-                plt.plot(x_axis, stats.norm.pdf(x_axis, y_original_simulation_hat_mean, y_original_simulation_hat_std), label="Orig. Sim. Distribution", color="black", linestyle = "-")
+                plt.plot(_x_axis, stats.norm.pdf(_x_axis, y_original_simulation_hat_mean, y_original_simulation_hat_std), label="Orig. Sim. Distribution", color="black", linestyle = "-")
                 plt.axvline(x=y_original_simulation_hat_mean, linewidth=1, linestyle = "-.", color = "black", label="Orig. Mean Sim. Value") # mean original kde prediction
                 
-                plt.plot(x_axis, uncertain_kde_pdfs, label="Uncertain. Sim. Distribution // KDE", color="pink", linestyle = "--")
-                plt.plot(x_axis, original_kde_pdfs, label="Original. Sim. Distribution // KDE", color="green", linestyle = "--")
+                plt.plot(_x_axis, _uncertain_kde_pdfs, label="Uncertain. Sim. Distribution // KDE", color="pink", linestyle = "--")
+                #plt.scatter(,j,marker=m)
+                plt.plot(_x_axis, _original_kde_pdfs, label="Original. Sim. Distribution // KDE", color="green", linestyle = "--")
+                # TODO add marker to plot
                 
-                plt.plot(x_axis, stats.norm.pdf(x_axis, y_uncertain_simulation_hat_mean, y_uncertain_simulation_hat_std), label="Uncert. Sim. Distribution", color="grey", linestyle = "--")
+                plt.plot(_x_axis, stats.norm.pdf(_x_axis, y_uncertain_simulation_hat_mean, y_uncertain_simulation_hat_std), label="Uncert. Sim. Distribution", color="grey", linestyle = "--")
                 plt.axvline(x=y_uncertain_simulation_hat_mean, linewidth=1, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value") # mean uncertain kde prediction
                 
-                plt.axvline(x=y_complete[i], linewidth=3, linestyle = "-", color = "green", label="Original Label")
-                plt.axvline(x=y_complete_hat_labels[i], linewidth=2, linestyle = "-", color = "red", label="Predicted Model Label")
+                plt.axvline(x=y_complete[row], linewidth=3, linestyle = "-", color = "green", label="Original Label")
+                plt.axvline(x=y_complete_hat_labels[row], linewidth=2, linestyle = "-", color = "red", label="Predicted Model Label")
                 
                 if _IMPUTE:
-                    plt.axvline(x=y_impute_hat[i], linewidth=1, linestyle = "--", color = "purple", label="Imputated Prediction") # impute prediction
+                    plt.axvline(x=y_impute_hat[row], linewidth=1, linestyle = "--", color = "purple", label="Imputated Prediction") # impute prediction
                 
-                plt.title(f'Row: {i} Underlying Uncertainty of the Simulation - Miss-Rate: {_MISS_RATE} - Impute-Method: {_SIMULATE_METHOD}')
+                plt.title(f'Row: {row} Underlying Uncertainty of the Simulation - Miss-Rate: {_MISS_RATE} - Impute-Method: {_SIMULATE_METHOD}')
                 plt.legend(bbox_to_anchor=(1.04, 0.5), loc="center left")
                 #plt.legend()
                 plt.xlabel('Sigmoid Activations')
@@ -1246,20 +1305,20 @@ if _SIMULATE == True:
 
             # single
             sns.kdeplot(y_original_simulation_hat["logits"])  
-            plt.title(f"Original Row - {i} // Logit Plot")
+            plt.title(f"Original Row - {row} // Logit Plot")
             plt.show()
             
             sns.kdeplot(y_original_simulation_hat["predictions"])  
-            plt.title(f"Original Row - {i} // Prediction Softmax Plot")
+            plt.title(f"Original Row - {row} // Prediction Softmax Plot")
             plt.show()
             """
             # combined
             sns.kdeplot(y_original_simulation_hat["logits"].flatten())  
-            plt.title(f"Original Row - {i} // Logit Plot")
+            plt.title(f"Original Row - {row} // Logit Plot")
             plt.show()
             
             sns.kdeplot(y_original_simulation_hat["predictions"].flatten())  
-            plt.title(f"Original Row - {i} // Prediction Softmax Plot")
+            plt.title(f"Original Row - {row} // Prediction Softmax Plot")
             plt.show()
             """
             
@@ -1283,6 +1342,9 @@ if _SIMULATE == True:
     """
     
     if _unique_outcomes == 2:       # TODO try to stay away from mean prediction metric
+    
+    
+
         
         y_uncertain_simulation_history_joint = np.stack([uncertain_simulation_history_mean, uncertain_simulation_history_mean_labels], 1)
         y_uncertain_simulation_history_joint = pd.DataFrame(y_uncertain_simulation_history_joint, columns=["sigmoid", "label"])
