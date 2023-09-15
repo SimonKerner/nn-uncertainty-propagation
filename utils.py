@@ -533,3 +533,45 @@ def plot_dirichlet_2(alpha):
 
     dist = Dirichlet(alpha)
     ax = plot_dirichlet.draw_pdf_contours(ax, dist, alpha)
+    
+    
+    
+"""
+"""         # test for the equality of kde samples from attributes with different missing rates of the different kde's
+"""    
+    
+   ##-----------------------------------> just some tests
+    
+first_attr_orig = kde_collection_original[0]
+
+first_attr_uncert = kde_collection_uncertain[0]
+    
+    
+first_attr_orig_value = first_attr_orig.pdf(0.3)
+    
+first_attr_uncert_value = first_attr_uncert.pdf(0.3)   
+    
+
+print("Original", first_attr_orig_value)
+print("Uncertain", first_attr_uncert_value)
+    
+    
+first_attr_orig_sample = first_attr_orig.resample(100000)
+    
+first_attr_uncert_sample = first_attr_uncert.resample(100000)
+    
+
+first_attr_orig_stats = stats.describe(first_attr_orig_sample.transpose())
+print(first_attr_orig_stats)
+
+first_attr_uncert_stats = stats.describe(first_attr_uncert_sample.transpose())
+print(first_attr_uncert_stats)
+
+sns.histplot(first_attr_orig_sample.transpose())
+plt.show()
+sns.histplot(first_attr_uncert_sample.transpose())
+plt.show()
+
+"""  
+"""
+"""
