@@ -71,14 +71,14 @@ following all the different settings for this simulation run can be found
 ##########################################################################################################################
 
 #choose working dataset: "australian" or "climate_simulation", "wdbc" -> Breast Cancer Wisconsin (Diagnostic)
-_dataset = "predict+students+dropout+and+academic+success"
+_dataset = "wdbc"
 
 
 # set random state          
 _RANDOM_STATE = 24
 
 # other constants
-_KDE_BANDWIDTH = 0.15 # --> if None (default) "scott" is used
+_KDE_BANDWIDTH = None # --> if None (default) "scott" is used
 _KDE_WEIGHTS = None
 
 
@@ -87,15 +87,15 @@ _standardize_data = True
 
 
 # settings for visualization
-_visiualize_data = True
+_visiualize_data = False
 _visualize_original_predictions = True
 _visualize_imputed_predictions = True
 
 
 # train or load model
-_train_model = True
+_train_model = False
 _save_new_model = False
-_load_model = False
+_load_model = True
 
 
 # prediction metrics
@@ -112,19 +112,19 @@ _MISS_RATE=0.3
 
 
 #KDE_VALUES OF EACH COLUMN - affected frames are DATAFRAME_SIMULATE -> Uncertain and DATAFRAME -> Certain/True
-_compare_col_kde_distributions = True
+_compare_col_kde_distributions = False
 _compare_col_kde_mode = "combined"    # choose between "single", "combined", "both"
 
 
 # modes for deterministic/stochastic experiments on missing dataframes
 # choose between kde_imputer, mean, median, most_frequent, KNNImputer
-_IMPUTE = True
+_IMPUTE = False
 _IMPUTE_METHOD = "mean"
 
 _SIMULATE = True
 _SIMULATION_LENGTH = 1000
 #_SIMULATION_RANGE = None
-_SIMULATION_RANGE = range(5, 6, 1)
+_SIMULATION_RANGE = range(19, 20, 1)
 _simulation_visualizations = True
 
 _save_simulated_results = False
@@ -324,7 +324,7 @@ if _train_model:
             --> Binary Model 
         """
         
-        _outputs = layers.Dense(1)(_x, activation='sigmoid')      
+        _outputs = layers.Dense(1, activation='sigmoid')(_x)      
         
         # build model
         model = keras.Model(inputs=_inputs, outputs=_outputs)
@@ -850,9 +850,29 @@ if _SIMULATE == True:
         some necessary variables and for further computation or history collection
     """
     
-    #x-axis ranges from 0 and 1 with .001 steps
+    # Weighting and clipping
+    # Amount of density below 0 & above 1
+    def adjust_edgeweight(y_hat):
+        
+        # @https://andrewpwheeler.com/2021/06/07/kde-plots-for-predicted-probabilities-in-python/
+        
+        # if chosen kde bandwidth is not a number, reuturn weights 0 and compute default values
+        if type(_KDE_BANDWIDTH) not in [int, float]:
+            edgeweight = None
+            return edgeweight
+        
+        below_0 = stats.norm.cdf(x=0, loc=y_hat, scale=_KDE_BANDWIDTH)
+        above_1 = 1 - stats.norm.cdf(x=1, loc=y_hat, scale=_KDE_BANDWIDTH)
+        
+        edgeweight = 1 / (1 - below_0 - above_1)
+        
+        return edgeweight
+    
+    
+    #x-axis ranges from 0 and 1 with .001 steps -- is also used for sigmoid accuracy
     # x-axis can be interpreted as sigmoid values between 0 and 1 with above mentioned steps (accuracy)
     _x_axis = np.arange(0.0, 1.0, 0.00001)
+    
     
     
     # simulation collection is holding all summarized information
@@ -870,14 +890,16 @@ if _SIMULATE == True:
         "1_Uncertain_Collection" : {
             "1.1_Simulation_Means" : [],
             "1.2_Simulation_Stds" : [],
-            "1.3_Simulation_Max_Densities" : [],
-            "1.4_Simulation_Max_Densities_Index" : []
+            "1.3_Simulation_Max_Density_Sigmoid" : [],
+            "1.4_Simulation_Lower_Bound_Probability" : [],
+            "1.5_Simulation_Upper_Bound_Probability" : []
             },
         "2_Original_Collection" : {
             "2.1_Simulation_Means" : [],
             "2.2_Simulation_Stds" : [],
-            "2.3_Simulation_Max_Densities" : [],
-            "2.4_Simulation_Max_Densities_Index" : []
+            "2.3_Simulation_Max_Density_Sigmoid" : [],
+            "2.4_Simulation_Lower_Bound_Probability" : [],
+            "2.5_Simulation_Upper_Bound_Probability" : []
             }
         }
         
@@ -983,29 +1005,7 @@ if _SIMULATE == True:
         
         
         if _unique_outcomes == 2:
-            
-            
-            # Weighting and clipping
-            # Amount of density below 0 & above 1
-            def adjust_edgeweight(y_hat):
-                
-                # @https://andrewpwheeler.com/2021/06/07/kde-plots-for-predicted-probabilities-in-python/
-                
-                # if chosen kde bandwidth is not a number, reutrn weights 0 and compute default values
-                if type(_KDE_BANDWIDTH) not in [int, float]:
-                    edgeweight = None
-                    return edgeweight
-                
-                below_0 = stats.norm.cdf(x=0, loc=y_hat, scale=_KDE_BANDWIDTH)
-                above_1 = 1 - stats.norm.cdf(x=1, loc=y_hat, scale=_KDE_BANDWIDTH)
-                
-                edgeweight = 1/ (1 - below_0 - above_1)
-                
-                return edgeweight
-            
-            
-            
-            
+
             
             """
             #step 5.1.a: row-wise predictions on uncertain samples
@@ -1029,30 +1029,21 @@ if _SIMULATE == True:
             _uncertain_kde_pdfs = _uncertain_simulation_result_kde.pdf(_x_axis)
             _uncertain_kde_density_peak_indices = scipy.signal.find_peaks(_uncertain_kde_pdfs)[0] 
             
+            # if max peak value not in list, append to peak history
             if (np.argmax(_uncertain_kde_pdfs) not in _uncertain_kde_density_peak_indices):
                 _uncertain_kde_density_peak_indices = np.append(_uncertain_kde_density_peak_indices, np.argmax(_uncertain_kde_pdfs))
                 
             _uncertain_kde_density_peak_pdf = [_uncertain_kde_pdfs[i] for i in _uncertain_kde_density_peak_indices]
             _uncertain_kde_stats = {int(_uncertain_kde_density_peak_indices[i]) : _uncertain_kde_density_peak_pdf[i] for i in range(len(_uncertain_kde_density_peak_indices))}
             
-            # TODO
             # kde integral for percentages under the curve
-            uncertain_kde_lower_probability = _uncertain_simulation_result_kde.integrate_box_1d(0, 0.5)
-            uncertain_kde_upper_probability = _uncertain_simulation_result_kde.integrate_box_1d(0.5, 1)
-            
-            uncertain_kde_sum_prob = uncertain_kde_lower_probability + uncertain_kde_upper_probability
-            
-            
+            #_uncertain_kde_lower_probability = round(_uncertain_simulation_result_kde.integrate_box_1d(float("-inf"), 0.5), 8)
+            #_uncertain_kde_upper_probability = round(_uncertain_simulation_result_kde.integrate_box_1d(0.5, float("inf")), 8)
+            _uncertain_kde_lower_probability = round(_uncertain_simulation_result_kde.integrate_box_1d(0, 0.5), 8)
+            _uncertain_kde_upper_probability = round(_uncertain_simulation_result_kde.integrate_box_1d(0.5, 1), 8)
             
             
-            # simulation history appendix
-            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.1_Simulation_Means"].append(_y_simulation_uncertain_hat_mean)
-            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.2_Simulation_Stds"].append(_y_simulation_uncertain_hat_std)
-            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.3_Simulation_Max_Densities"].append(_uncertain_kde_pdfs[np.argmax(_uncertain_kde_pdfs)])
-            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.4_Simulation_Max_Densities_Index"].append(np.argmax(_uncertain_kde_pdfs))
-            
-            
-            
+            _uncertain_kde_sum_prob = round(_uncertain_kde_lower_probability + _uncertain_kde_upper_probability, 2)
             
             
             """
@@ -1064,12 +1055,12 @@ if _SIMULATE == True:
             _y_simulation_original_hat = model.predict(_X_simulation_original, verbose=0).flatten()
             _y_simulation_original_hat_labels = (_y_simulation_original_hat>0.5).astype("int32")
             
-            # simulation outcome and statistics
+            # simulation parametric statistics
             _y_simulation_original_hat_mean = _y_simulation_original_hat.mean()
             _y_simulation_original_hat_std = _y_simulation_original_hat.std()
             
             
-            #### origninal kde curve
+            #### simulation non-parametric statistics
             _original_simulation_result_kde = stats.gaussian_kde(_y_simulation_original_hat, 
                                                     bw_method=_KDE_BANDWIDTH, 
                                                     weights=adjust_edgeweight(_y_simulation_original_hat))
@@ -1077,6 +1068,7 @@ if _SIMULATE == True:
             _original_kde_pdfs = _original_simulation_result_kde.pdf(_x_axis) 
             _original_kde_density_peak_indices = scipy.signal.find_peaks(_original_kde_pdfs)[0]
             
+            # if max peak value not in list, append to peak history
             if (np.argmax(_original_kde_pdfs) not in _original_kde_density_peak_indices):
                 _original_kde_density_peak_indices = np.append(_original_kde_density_peak_indices, np.argmax(_original_kde_pdfs))
                 
@@ -1085,23 +1077,12 @@ if _SIMULATE == True:
             
             
             # kde integral for percentages under the curve
-            original_kde_lower_probability = _original_simulation_result_kde.integrate_box_1d(0, 0.5)
-            original_kde_upper_probability = _original_simulation_result_kde.integrate_box_1d(0.5, 1)
+            #_original_kde_lower_probability = round(_original_simulation_result_kde.integrate_box_1d(float("-inf"), 0.5), 8)
+            #_original_kde_upper_probability = round(_original_simulation_result_kde.integrate_box_1d(0.5, float("inf")), 8)
+            _original_kde_lower_probability = round(_original_simulation_result_kde.integrate_box_1d(0, 0.5), 8)
+            _original_kde_upper_probability = round(_original_simulation_result_kde.integrate_box_1d(0.5, 1), 8)
             
-            original_kde_sum_prob = original_kde_lower_probability + original_kde_upper_probability
-            
-            
-            # simulation history appendix
-            SIMULATION_COLLECTION["2_Original_Collection"]["2.1_Simulation_Means"].append(_y_simulation_original_hat_mean)
-            SIMULATION_COLLECTION["2_Original_Collection"]["2.2_Simulation_Stds"].append(_y_simulation_original_hat_std)
-            SIMULATION_COLLECTION["2_Original_Collection"]["2.3_Simulation_Max_Densities"].append(_original_kde_pdfs[np.argmax(_original_kde_pdfs)])
-            SIMULATION_COLLECTION["2_Original_Collection"]["2.4_Simulation_Max_Densities_Index"].append(np.argmax(_original_kde_pdfs))
-            
-    
-
-
-
-
+            _original_kde_sum_prob = round(_original_kde_lower_probability + _original_kde_upper_probability, 2)
             
 
 
@@ -1119,7 +1100,7 @@ if _SIMULATE == True:
                     "0.6_uncertain_attributes" : _uncertain_attributes,
                     },
                 "1_Uncertain Simulation Collection" : {
-                    "1.01_x_input_values" : _X_simulation_uncertain,
+                    "1.01_x_input_stats" : _X_simulation_uncertain.describe(),
                     "1.02_y_simulation_hat" : _y_simulation_uncertain_hat,
                     "1.03_y_simulation_hat_labels" : _y_simulation_uncertain_hat_labels,
                     "1.04_label_frequency" : pd.Series(_y_simulation_uncertain_hat_labels).value_counts(),
@@ -1127,12 +1108,13 @@ if _SIMULATE == True:
                     "1.06_simulation_std" : _y_simulation_uncertain_hat_std,
                     "1.07_kde_pdfs" : _uncertain_kde_pdfs,
                     "1.08_kde_peaks_and_indices" : _uncertain_kde_stats,
-                    "1.09_kde_lower_probability" : uncertain_kde_lower_probability,
-                    "1.10_kde_upper_probability" : uncertain_kde_upper_probability,
-                    "1.11_kde_combined_probability" : uncertain_kde_sum_prob
+                    "1.09_kde_max_density_sigmoid" : max(_uncertain_kde_stats, key=_uncertain_kde_stats.get) / len(_x_axis),
+                    "1.10_kde_lower_bound_probability" : _uncertain_kde_lower_probability,
+                    "1.11_kde_upper_bound_probability" : _uncertain_kde_upper_probability,
+                    "1.12_kde_combined_probability" : _uncertain_kde_sum_prob
                     },
                 "2_Original Simulation Collection" : {
-                    "2.01_x_input_values" : _X_simulation_original,
+                    "2.01_x_input_stats" : _X_simulation_original.describe(),
                     "2.02_y_simulation_hat" : _y_simulation_original_hat,
                     "2.03_y_simulation_hat_labels" : _y_simulation_original_hat_labels,
                     "2.04_label_frequency" : pd.Series(_y_simulation_original_hat_labels).value_counts(),
@@ -1140,22 +1122,39 @@ if _SIMULATE == True:
                     "2.06_simulation_std" : _y_simulation_original_hat_std,
                     "2.07_kde_pdfs" : _original_kde_pdfs,
                     "2.08_kde_peaks_and_indices" : _original_kde_stats,
-                    "2.09_kde_lower_probability" : original_kde_lower_probability,
-                    "2.10_kde_upper_probability" : original_kde_upper_probability,
-                    "2.11_kde_combined_probability" : original_kde_sum_prob
+                    "2.09_kde_max_density_sigmoid" : max(_original_kde_stats, key=_original_kde_stats.get) / len(_x_axis),
+                    "2.10_kde_lower_bound_probability" : _original_kde_lower_probability,
+                    "2.11_kde_upper_bound_probability" : _original_kde_upper_probability,
+                    "2.12_kde_combined_probability" : _original_kde_sum_prob
                     },
                 "3_Row_analysis" : {
-                    "test" : []
+                    "Explanation" : "Row differences of the uncertain kde simulation from the original kde simulation",
+                    "Input_Differences" : _X_simulation_original.describe() - _X_simulation_uncertain.describe(),
+                    "Label_Frequ_Diff" : pd.Series(_y_simulation_original_hat_labels).value_counts() - pd.Series(_y_simulation_uncertain_hat_labels).value_counts(),
+                    "Sim_Mean_diff" : _y_simulation_original_hat_mean - _y_simulation_uncertain_hat_mean,
+                    "Sim_STD_diff" : _y_simulation_original_hat_std - _y_simulation_uncertain_hat_std,
+                    "Sim_Max_Density_Sigmoid" : max(_original_kde_stats, key=_original_kde_stats.get) / len(_x_axis) - max(_uncertain_kde_stats, key=_uncertain_kde_stats.get) / len(_x_axis)
                     }
                 })
                 
 
-
+                        
+            # simulation history appendix
+            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.1_Simulation_Means"].append(_y_simulation_uncertain_hat_mean)
+            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.2_Simulation_Stds"].append(_y_simulation_uncertain_hat_std)
+            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.3_Simulation_Max_Density_Sigmoid"].append(max(_uncertain_kde_stats, key=_uncertain_kde_stats.get) / len(_x_axis))
+            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.4_Simulation_Lower_Bound_Probability"].append(_uncertain_kde_lower_probability)
+            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.5_Simulation_Upper_Bound_Probability"].append(_uncertain_kde_upper_probability)
+            
+            # simulation history appendix
+            SIMULATION_COLLECTION["2_Original_Collection"]["2.1_Simulation_Means"].append(_y_simulation_original_hat_mean)
+            SIMULATION_COLLECTION["2_Original_Collection"]["2.2_Simulation_Stds"].append(_y_simulation_original_hat_std)
+            SIMULATION_COLLECTION["2_Original_Collection"]["2.3_Simulation_Max_Density_Sigmoid"].append(max(_original_kde_stats, key=_original_kde_stats.get) / len(_x_axis))
+            SIMULATION_COLLECTION["2_Original_Collection"]["2.4_Simulation_Lower_Bound_Probability"].append(_original_kde_lower_probability)
+            SIMULATION_COLLECTION["2_Original_Collection"]["2.5_Simulation_Upper_Bound_Probability"].append(_original_kde_upper_probability)
 
                     
                     
-                
-
             # visualizations for binary simulation // comparison plots
             if _simulation_visualizations:
     
@@ -1240,6 +1239,9 @@ if _SIMULATE == True:
                 plt.plot(_x_axis, _uncertain_kde_pdfs, label="Uncertain. Sim. Distribution // KDE", color="grey", linestyle = "--")
                 plt.plot(_x_axis, _original_kde_pdfs, label="Original. Sim. Distribution // KDE", color="black", linestyle = "--")
                 
+                # unweighted original kde 
+                #plt.plot(_x_axis, stats.gaussian_kde(_y_simulation_uncertain_hat, bw_method=_KDE_BANDWIDTH)(_x_axis), label="Original. unweighKDE", color="pink", linestyle = "--")
+
                 plt.axvline(x=y_original[_row], linewidth=4, linestyle = "-", color = "green", label="Original Label")
                 plt.axvline(x=y_original_hat_labels[_row], linewidth=2, alpha=1, linestyle = "--", color = "red", label="Predicted Model Label")
                 
@@ -1351,6 +1353,13 @@ if _SIMULATE == True:
         
     
     """
+            ----------------> simulations process end <----------------
+            ----------------> simulations process end <----------------
+            ----------------> simulations process end <----------------
+            ----------------> simulations process end <----------------
+            ----------------> simulations process end <----------------
+            ----------------> simulations process end <----------------
+            ----------------> simulations process end <----------------
             ----------------> simulations process end <----------------
     """
     
@@ -1504,4 +1513,38 @@ if _IMPUTE == True and _SIMULATE == True:
 
 #test = SIMULATION_ROW_RESULTS[0]["1_Uncertain Simulation Collection"]["1.3_y_simulation_hat"]
 
+"""
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import norm
 
+np.random.seed(17)
+x = np.random.exponential(scale=1, size=1000)
+
+# Compute a bandwidth.
+density_estimation = np.histogram(x, bins='auto', density=True)
+h = density_estimation[1][np.argmax(density_estimation[0])]
+
+# Compute edge weights.
+w = 1 / norm.cdf(0, loc=np.mean(x), scale=h)
+
+# The truncated weighted density is what we want.
+d = norm.pdf(x, loc=np.mean(x), scale=h) * (w / len(x))
+d[x < 0] = 0
+
+# Check: the integral ought to be close to 1:
+integral = np.sum(d * np.diff(x)[0])
+print("Integral:", integral)
+
+# Plot the two density estimates.
+plt.figure()
+plt.title("Default and truncated densities")
+plt.xlim(-1, 5)
+plt.plot(x, np.zeros_like(x), 'b', alpha=0)  # Create an empty plot for setting the x-axis limits
+plt.fill_between(density_estimation[1][:-1], density_estimation[0], color="#6060ff80", alpha=0.5)
+plt.fill_between(x, d, color="#ff606080", alpha=0.5)
+x_values = np.linspace(0, np.max(x), 1000)
+plt.plot(x_values, np.exp(-x_values), 'r--', label='Exponential PDF')
+plt.legend()
+plt.show()
+"""
