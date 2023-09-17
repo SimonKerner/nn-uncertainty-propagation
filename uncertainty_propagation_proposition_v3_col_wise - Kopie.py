@@ -95,8 +95,8 @@ _visualize_imputed_predictions = True
 
 # train or load model
 _train_model = True
-_save_new_model = True
-_load_model = True
+_save_new_model = False
+_load_model = False
 
 
 # prediction metrics
@@ -123,7 +123,7 @@ _IMPUTE = True
 _IMPUTE_METHOD = "mean"
 
 _SIMULATE = True
-_SIMULATION_LENGTH = 1000
+_SIMULATION_LENGTH = 100000
 #_SIMULATION_RANGE = None
 _SIMULATION_RANGE = range(566, 569, 1)
 _simulation_visualizations = True
@@ -311,7 +311,7 @@ if _train_model:
     # layers of the network
     _inputs = keras.Input(shape=(X_original.shape[1]))
     #_x = layers.Dense(32, activation='relu')(_inputs)
-    _x = layers.Dense(16, activation='relu')(_inputs)
+    _x = layers.Dense(16, activation='relu')(_inputs)  
     #_x = layers.Dense(16, activation='relu')(_x)
     
     
@@ -322,8 +322,7 @@ if _train_model:
             --> Binary Model 
         """
         
-        _outputs = layers.Dense(1, activation='sigmoid')(_x)      
-        
+        _outputs = layers.Dense(1, activation="sigmoid")(_x)              
         # build model
         model = keras.Model(inputs=_inputs, outputs=_outputs)
         
@@ -446,14 +445,14 @@ if _unique_outcomes == 2:
     
     
     if _visualize_original_predictions:
-        
+
         # visualize predictions
         plt.figure(figsize=(10, 6))
         sns.histplot(data={"sigmoid" : y_original_hat, "label" : y_original_hat_labels}, 
                      x="sigmoid", 
                      hue="label", 
                      bins=15, 
-                     binrange=(0, 1), 
+                     #binrange=(0, 1), 
                      stat="count", 
                      kde=False, 
                      kde_kws={"cut":0})
@@ -462,9 +461,9 @@ if _unique_outcomes == 2:
         plt.title('Original (True) dataset combined output')
         plt.tight_layout()
         plt.show()
-        
     
-        
+    
+    
     
 elif _unique_outcomes >= 3:
     
@@ -558,8 +557,8 @@ if _visiualize_data:
     
     # comparison of original and uncertain DATAFRAME    
     plt.figure(figsize=(12, 6))
-    sns.histplot(data={"DATAFRAME_ORIGINAL_KDE" : np.array(DATAFRAME_ORIGINAL).flatten(), 
-                       "DATAFRAME_MISS_KDE" : np.array(DATAFRAME_MISS).flatten()})
+    sns.histplot(data={"DATAFRAME_ORIGINAL" : np.array(DATAFRAME_ORIGINAL).flatten(), 
+                       "DATAFRAME_MISS" : np.array(DATAFRAME_MISS).flatten()})
     plt.xlabel('Values')
     plt.ylabel('Density')
     plt.title('Original & Uncertain dataset as flattened histplot')
@@ -1551,15 +1550,6 @@ if _load_simulated_results:
 
 
 
-
-
-
-
-
-
-
-
-
 """
     ---> Comparison of everything - Creation of extended dataframe containing all results
     
@@ -1573,60 +1563,117 @@ if _load_simulated_results:
         
 """
 
-""" # TODO
+ # TODO
 if _IMPUTE == True and _SIMULATE == True:
-    
-    if len(_SIMULATION_RANGE) == len(_DATAFRAME_SIMULATE):
         
-        DATAFRAME_COMBINED_RESULTS = np.stack([y_original, 
-                                               y_original_hat, 
-                                               y_original_hat_labels, 
-                                               (y_original == y_original_hat_labels),
-                                               y_impute_hat,
-                                               y_impute_hat_labels,
-                                               (y_original_hat_labels == y_impute_hat_labels),
-                                               #uncertain_simulation_history_mean,
-                                               #uncertain_simulation_history_mean_labels,
-                                               #(y_original_hat_labels == uncertain_simulation_history_mean_labels),
-                                               #original_simulation_history_mean,
-                                               #original_simulation_history_mean_labels,
-                                              # (y_original_hat_labels == original_simulation_history_mean_labels)
-                                              ], 1)
+        min_idx = min(_SIMULATION_RANGE)
+        max_idx = max(_SIMULATION_RANGE) + 1
         
-        DATAFRAME_COMBINED_RESULTS = pd.DataFrame(data=DATAFRAME_COMBINED_RESULTS, columns=["Original_Label", 
-                                                                                            "0_Prediction", 
-                                                                                            "0_Predicted_Label", 
-                                                                                            "0_Prediction_Result",
-                                                                                            "1_Imputation",
-                                                                                            "1_Imputation_Label",
-                                                                                            "1_Results_vs_Prediction_Label",
-                                                                                            "2_U_Simulation_Mean",
-                                                                                            "2_U_Simulation_Label",
-                                                                                            "2_U_Simulation_vs_Prediction_Label",
-                                                                                            "3_O_Simulation_Mean",
-                                                                                            "3_O_Simulation_Label",
-                                                                                            "3_O_Simulation_vs_Prediction_Label"])
         
-        DATAFRAME_COMBINED_RESULTS["0_Prediction_Result"] = DATAFRAME_COMBINED_RESULTS["0_Prediction_Result"].astype(bool)
-        DATAFRAME_COMBINED_RESULTS["1_Results_vs_Prediction_Label"] = DATAFRAME_COMBINED_RESULTS["1_Results_vs_Prediction_Label"].astype(bool)
-        DATAFRAME_COMBINED_RESULTS["2_U_Simulation_vs_Prediction_Label"] = DATAFRAME_COMBINED_RESULTS["2_U_Simulation_vs_Prediction_Label"].astype(bool)
-        DATAFRAME_COMBINED_RESULTS["3_O_Simulation_vs_Prediction_Label"] = DATAFRAME_COMBINED_RESULTS["3_O_Simulation_vs_Prediction_Label"].astype(bool)
+
+        DATAFRAME_COMBINED_RESULTS = pd.DataFrame(data={"Original_Label" : y_original[min_idx:max_idx],
+                                                        "0_Prediction" : y_original_hat[min_idx:max_idx],
+                                                        "0_Predicted_Label" : y_original_hat_labels[min_idx:max_idx],
+                                                        #"0_Prediction_Result" : (y_original[min_idx:max_idx] == y_original_hat_labels[min_idx:max_idx]),
+                                                        "1_Imputation" : y_impute_hat[min_idx:max_idx],
+                                                        "1_Imputation_Label" : y_impute_hat_labels[min_idx:max_idx],
+                                                        #"1_Results_vs_Prediction_Label" : (y_original_hat_labels[min_idx:max_idx] == y_impute_hat_labels[min_idx:max_idx]),
+                                                        "2_Orig_Sim_Mean" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.1_Means"],
+                                                        "2_Orig_Sim_Label" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.2_Mean_Labels"],
+                                                        "2_Orig_Sim_Std" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.4_Stds"],
+                                                        "2_Orig_Sim_Max_Density" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.5_Max_Density_Sigmoid"],
+                                                        "2_Orig_Sim_Max_Density_Label" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.6_Max_Density_Sig_Label"],
+                                                        
+                                                        "3_Uncert_Sim_Mean" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.1_Means"],
+                                                        "3_Uncert_Sim_Label" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.2_Mean_Labels"],
+                                                        "3_Uncert_Sim_Std" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.4_Stds"],
+                                                        "3_Uncert_Sim_Max_Density" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.5_Max_Density_Sigmoid"],
+                                                        "3_Uncert_Sim_Max_Density_Label" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.6_Max_Density_Sig_Label"],
+                                                        }).transpose()
+                                                  
+                                                  
+                                                  
+        DATAFRAME_COMBINED_ANALYSIS = pd.Series(data={"Correct labels assigned by model": DATAFRAME_COMBINED_RESULTS["0_Prediction_Result"].value_counts(True)[0],
+                                                      "Correct labels assigned by imputation": DATAFRAME_COMBINED_RESULTS["1_Results_vs_Prediction_Label"].value_counts(True)[0],
+                                                      "Correct labels assigned by simulation_unc_kde": DATAFRAME_COMBINED_RESULTS["2_U_Simulation_vs_Prediction_Label"].value_counts(True)[0],
+                                                      "Correct labels assigned by imputation_ori_kde": DATAFRAME_COMBINED_RESULTS["3_O_Simulation_vs_Prediction_Label"].value_counts(True)[0]})
     
+
+
+
+
+
+
+
+
+
+
+
+
+# general comparison of distributions (original, impute, sim-uncert, sim-orig)
+"""         ### general comparison
+kde_collection_impute = []
+
+for _column in _column_names:
     
+    # drop all missing values and get kde of remaining values inside a column
+    _column_values = DATAFRAME_IMPUTE[_column].values
     
-        DATAFRAME_COMBINED_ANALYSIS = pd.Series(data={"Correct label assigned by model": DATAFRAME_COMBINED_RESULTS["0_Prediction_Result"].value_counts(True)[0],
-                                                      "Correct label assigned by imputation": DATAFRAME_COMBINED_RESULTS["1_Results_vs_Prediction_Label"].value_counts(True)[0],
-                                                      "Correct label assigned by simulation_unc_kde": DATAFRAME_COMBINED_RESULTS["2_U_Simulation_vs_Prediction_Label"].value_counts(True)[0],
-                                                      "Correct label assigned by imputation_ori_kde": DATAFRAME_COMBINED_RESULTS["3_O_Simulation_vs_Prediction_Label"].value_counts(True)[0]})
+    kde = stats.gaussian_kde(_column_values, bw_method=_INIT_DATA_BANDWIDTH)   
+    kde_collection_impute.append(kde)
+
+kde_collection_impute = {_column_names[i]: kde_collection_impute[i] for i in range(len(_column_names))}
+
+gen_original_sample = []
+gen_impute_sample = []
+gen_uncertain_sample = [] 
+
+for _key in _column_names[:-1]:
     
+    _original_sample = kde_collection_original[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
+    _impute_sample = kde_collection_impute[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
+    _uncertain_sample = kde_collection_uncertain[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
+
+
+    # if standardize is true and values x are x < 0 or x > 1, then set x respectively to 0 or 1
+    if _standardize_data:
+        
+        _uncertain_sample[(_uncertain_sample < 0)] = 0
+        _uncertain_sample[(_uncertain_sample > 1)] = 1
+        
+        _original_sample[(_original_sample < 0)] = 0
+        _original_sample[(_original_sample > 1)] = 1
+        
+        _impute_sample[(_impute_sample < 0)] = 0
+        _impute_sample[(_impute_sample > 1)] = 1
+
+
+    gen_original_sample.append(_uncertain_sample)
+    gen_uncertain_sample.append(_original_sample)
+    gen_impute_sample.append(_impute_sample)
+
+
+gen_original_sample = pd.DataFrame(gen_original_sample).transpose()
+gen_original_sample.columns = _column_names[:-1]
+
+gen_impute_sample = pd.DataFrame(gen_impute_sample).transpose()
+gen_impute_sample.columns = _column_names[:-1]
+
+gen_uncertain_sample = pd.DataFrame(gen_uncertain_sample).transpose()
+gen_uncertain_sample.columns = _column_names[:-1]
 
 
 
+gen_original_pred = model.predict(gen_original_sample).flatten()
+gen_impute_pred = model.predict(gen_impute_sample).flatten()
+gen_uncertain_pred = model.predict(gen_uncertain_sample).flatten()
 
 
-
+sns.kdeplot({"original":gen_original_pred,
+             "impute":gen_impute_pred,
+             "uncertain":gen_uncertain_pred},
+            fill=False)
 """
-
 
 
 # ade evaluationen
