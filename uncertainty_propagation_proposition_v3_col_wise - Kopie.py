@@ -79,7 +79,7 @@ _RANDOM_STATE = 24
 
 # other constants
 _INIT_DATA_BANDWIDTH = None
-__PRED_BANDWIDTH = None # --> if None (default) "scott" is used
+_PRED_BANDWIDTH = 0.2 # --> if None (default) "scott" is used
 _KDE_WEIGHTS = None
 
 
@@ -88,20 +88,20 @@ _standardize_data = True
 
 
 # settings for visualization
-_visiualize_data = False
+_visiualize_data = True
 _visualize_original_predictions = True
 _visualize_imputed_predictions = True
 
 
 # train or load model
 _train_model = True
-_save_new_model = False
-_load_model = False
+_save_new_model = True
+_load_model = True
 
 
 # prediction metrics
 _get_original_prediction_metrics = True
-_get_imputed_prediction_metrics = False
+_get_imputed_prediction_metrics = True
 _get_simulated_prediction_metrics = False
 
 
@@ -125,14 +125,13 @@ _IMPUTE_METHOD = "mean"
 _SIMULATE = True
 _SIMULATION_LENGTH = 1000
 #_SIMULATION_RANGE = None
-_SIMULATION_RANGE = range(568, 569, 1)
+_SIMULATION_RANGE = range(566, 569, 1)
 _simulation_visualizations = True
 
 _save_simulated_results = False
 
 _load_simulated_results = False
-_load_sim_res_name = "auto"         ## ---> name == "auto" (taking above variables) or string with name
-
+_load_results_id = 0
 
 
 ##########################################################################################################################
@@ -213,7 +212,7 @@ _unique_outcomes = len(DATAFRAME_ORIGINAL.Outcome.unique())
 
 if _standardize_data:
     
-    # use data scaler to norm the data (scaler used = MinMaxSclaer, values between 0 and 1)
+    # use data scaler to norm the data (scaler used = MinM_axsclaer, values between 0 and 1)
     _scaler = MinMaxScaler()
     
     
@@ -262,7 +261,7 @@ if _visiualize_data:
     """
     # Visualizing correlation between variables using a heatmap
     corr_matrix = DATAFRAME.iloc[:,:-1].corr()
-    plt.figure(figsize=(12, 10))
+    plt._figure(figsize=(12, 10))
     sns.heatmap(corr_matrix, annot=True, cmap="coolwarm", square=True)
     plt.tight_layout()
     plt.show()
@@ -360,7 +359,7 @@ if _train_model:
         # model with two output heads
         #   1. Head: outputs the logits without any activation function
         #   2. Head: outputs a default softmax layer for classification
-        model = keras.Model(inputs=_inputs, outputs={"logits" : tf.nn.softmax(_logits), #_logits,
+        model = keras.Model(inputs=_inputs, outputs={"logits" : _logits, #_logits,
                                                     "predictions" : tf.nn.softmax(_logits)})
         
         
@@ -453,9 +452,10 @@ if _unique_outcomes == 2:
         sns.histplot(data={"sigmoid" : y_original_hat, "label" : y_original_hat_labels}, 
                      x="sigmoid", 
                      hue="label", 
-                     bins=10, 
+                     bins=15, 
+                     binrange=(0, 1), 
                      stat="count", 
-                     kde=False,
+                     kde=False, 
                      kde_kws={"cut":0})
         plt.xlabel('Sigmoid Activations')
         plt.ylabel('Frequency')
@@ -654,11 +654,13 @@ if _IMPUTE:
             # visualize predictions
             plt.figure(figsize=(10, 6))
             sns.histplot(data={"sigmoid" : y_impute_hat, "label" : y_impute_hat_labels}, 
-                         x="sigmoid", hue="label", 
-                         bins=10, 
-                         stat="count", 
-                         kde=False, 
-                         kde_kws={"cut":0})
+                         x="sigmoid", 
+                         hue="label", 
+                     bins=15, 
+                     binrange=(0, 1), 
+                     stat="count", 
+                     kde=False, 
+                     kde_kws={"cut":0})
             plt.xlabel('Sigmoid Activations')
             plt.ylabel('Frequency')
             plt.title(f'Impute (uncertain) dataset combined output - Miss-Rate: {_MISS_RATE} - Impute-Method: {_IMPUTE_METHOD}')
@@ -856,12 +858,12 @@ if _SIMULATE == True:
         # @https://andrewpwheeler.com/2021/06/07/kde-plots-for-predicted-probabilities-in-python/
         
         # if chosen kde bandwidth is not a number, reuturn weights 0 and compute default values
-        if type(__PRED_BANDWIDTH) not in [int, float]:
+        if type(_PRED_BANDWIDTH) not in [int, float]:
             edgeweight = None
             return edgeweight
         
-        below_0 = stats.norm.cdf(x=0, loc=y_hat, scale=__PRED_BANDWIDTH)
-        above_1 = 1 - stats.norm.cdf(x=1, loc=y_hat, scale=__PRED_BANDWIDTH)
+        below_0 = stats.norm.cdf(x=0, loc=y_hat, scale=_PRED_BANDWIDTH)
+        above_1 = 1 - stats.norm.cdf(x=1, loc=y_hat, scale=_PRED_BANDWIDTH)
         
         edgeweight = 1 / (1 - below_0 - above_1)
         
@@ -871,7 +873,7 @@ if _SIMULATE == True:
     #x-axis ranges from 0 and 1 with .001 steps -- is also used for sigmoid accuracy
     # x-axis can be interpreted as sigmoid values between 0 and 1 with above mentioned steps (accuracy)
     if _SIMULATION_LENGTH <= 10.000:
-        _x_axis = np.arange(0.0, 1.0, 0.00001)
+        _x_axis = np.arange(0.0, 1.0, 0.000005)
     else:
         _x_axis = np.arange(0.0, 1.0, 0.001)
     
@@ -888,21 +890,27 @@ if _SIMULATE == True:
             "0.7_elapsed_sim_time" : "",
             "0.8_simulated_rows" : len(_SIMULATION_RANGE)
             },
-        "1_Uncertain_Collection" : {
-            "1.1_Simulation_Means" : [],
-            "1.2_Simulation_Stds" : [],
-            "1.3_Simulation_Max_Density_Sigmoid" : [],
-            "1.4_Simulation_Max_Density_Sig_Label" : [],
-            "1.5_Simulation_Lower_Bound_Probability" : [],
-            "1.6_Simulation_Upper_Bound_Probability" : []
+        "1_Uncertain_Simulation" : {
+            "1.1_Means" : [],
+            "1.2_Mean_Labels" : [],
+            "1.3_Mean_Label_Frequenzy" : [],
+            "1.4_Stds" : [],
+            "1.5_Max_Density_Sigmoid" : [],
+            "1.6_Max_Density_Sig_Label" : [],
+            "1.7_Max_Density_Sig_Label_Frequency" : [],
+            "1.8_Lower_Bound_Probability" : [],
+            "1.9_Upper_Bound_Probability" : []
             },
-        "2_Original_Collection" : {
-            "2.1_Simulation_Means" : [],
-            "2.2_Simulation_Stds" : [],
-            "2.3_Simulation_Max_Density_Sigmoid" : [],
-            "2.4_Simulation_Max_Density_Sig_Label" : [],
-            "2.5_Simulation_Lower_Bound_Probability" : [],
-            "2.6_Simulation_Upper_Bound_Probability" : []
+        "2_Original_Simulation" : {
+            "2.1_Means" : [],
+            "2.2_Mean_Labels" : [],
+            "2.3_Mean_Label_Frequenzy" : [],
+            "2.4_Stds" : [],
+            "2.5_Max_Density_Sigmoid" : [],
+            "2.6_Max_Density_Sig_Label" : [],
+            "2.7_Max_Density_Sig_Label_Frequency" : [],
+            "2.8_Lower_Bound_Probability" : [],
+            "2.9_Upper_Bound_Probability" : []
             }
         }
         
@@ -1022,11 +1030,12 @@ if _SIMULATE == True:
             
             # simulation parametric statistics
             _y_simulation_uncertain_hat_mean = _y_simulation_uncertain_hat.mean()
+            _y_simulation_uncertain_hat_mean_label = (_y_simulation_uncertain_hat.mean()>0.5).astype("int32")
             _y_simulation_uncertain_hat_std = _y_simulation_uncertain_hat.std()
             
             #### simulation non-parametric statistics
             _uncertain_simulation_result_kde = stats.gaussian_kde(_y_simulation_uncertain_hat, 
-                                                     bw_method=__PRED_BANDWIDTH, 
+                                                     bw_method=_PRED_BANDWIDTH, 
                                                      weights=adjust_edgeweight(_y_simulation_uncertain_hat))
             
             _uncertain_kde_pdfs = _uncertain_simulation_result_kde.pdf(_x_axis)
@@ -1061,12 +1070,13 @@ if _SIMULATE == True:
             
             # simulation parametric statistics
             _y_simulation_original_hat_mean = _y_simulation_original_hat.mean()
+            _y_simulation_original_hat_mean_label = (_y_simulation_original_hat.mean()>0.5).astype("int32")
             _y_simulation_original_hat_std = _y_simulation_original_hat.std()
             
             
             #### simulation non-parametric statistics
             _original_simulation_result_kde = stats.gaussian_kde(_y_simulation_original_hat, 
-                                                    bw_method=__PRED_BANDWIDTH, 
+                                                    bw_method=_PRED_BANDWIDTH, 
                                                     weights=adjust_edgeweight(_y_simulation_original_hat))
             
             _original_kde_pdfs = _original_simulation_result_kde.pdf(_x_axis) 
@@ -1091,6 +1101,22 @@ if _SIMULATE == True:
             _original_max_density_label = int(_original_max_density_sigmoid>0.5)
 
 
+            """
+            test = sns.kdeplot(data={"uncert":_y_simulation_uncertain_hat,
+                              "orig":_y_simulation_original_hat}, cumulative=True, bw_method=_PRED_BANDWIDTH)
+            """
+            """
+            original_cdf = np.cumsum(_original_kde_pdfs / sum(_original_kde_pdfs))
+            uncertain_cdf = np.cumsum(_uncertain_kde_pdfs / sum(_uncertain_kde_pdfs))
+            
+            plt.plot(_x_axis, original_cdf, label="original", color="orange")
+            plt.plot(_x_axis, uncertain_cdf, label="uncertain", color="blue")
+            """
+
+
+            #kl_div_ff = np.sum(scipy.special.kl_div(_original_kde_pdfs, _uncertain_kde_pdfs))
+            #kl_div_bw = np.sum(scipy.special.kl_div(_uncertain_kde_pdfs, _original_kde_pdfs))
+ 
 
             """
                 #append simulation row results
@@ -1136,140 +1162,164 @@ if _SIMULATE == True:
                 "3_Row_analysis" : {
                     "Explanation" : "Row differences of the uncertain kde simulation from the original kde simulation",
                     "Input_Differences" : _X_simulation_original.describe() - _X_simulation_uncertain.describe(),
-                    "Label_Frequ_Diff" : pd.Series(_y_simulation_original_hat_labels).value_counts() - pd.Series(_y_simulation_uncertain_hat_labels).value_counts(),
-                    "Sim_Mean_diff" : _y_simulation_original_hat_mean - _y_simulation_uncertain_hat_mean,
-                    "Sim_STD_diff" : _y_simulation_original_hat_std - _y_simulation_uncertain_hat_std,
-                    "Sim_Max_Density_Sigmoid_diff" : _original_max_density_sigmoid - _uncertain_max_density_sigmoid
+                    "Label_Frequ_diff" : pd.Series(_y_simulation_original_hat_labels).value_counts() - pd.Series(_y_simulation_uncertain_hat_labels).value_counts(),
+                    "Sim_Mean_dist" : np.abs(_y_simulation_original_hat_mean - _y_simulation_uncertain_hat_mean),
+                    "Sim_Std_dist" : np.abs(_y_simulation_original_hat_std - _y_simulation_uncertain_hat_std),
+                    "Sim_Max_Density_Sigmoid_dist" : np.abs(_original_max_density_sigmoid - _uncertain_max_density_sigmoid),
+                    #"KS-Test" : stats.ks_2samp(_original_kde_pdfs, _uncertain_kde_pdfs)
                     }
                 })
-                
 
                         
             # simulation history appendix
-            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.1_Simulation_Means"].append(_y_simulation_uncertain_hat_mean)
-            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.2_Simulation_Stds"].append(_y_simulation_uncertain_hat_std)
-            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.3_Simulation_Max_Density_Sigmoid"].append(_uncertain_max_density_sigmoid)
-            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.4_Simulation_Max_Density_Sig_Label"].append(_uncertain_max_density_label)
-            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.5_Simulation_Lower_Bound_Probability"].append(_uncertain_kde_lower_probability)
-            SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.6_Simulation_Upper_Bound_Probability"].append(_uncertain_kde_upper_probability)
+            SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.1_Means"].append(_y_simulation_uncertain_hat_mean)
+            SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.2_Mean_Labels"].append(_y_simulation_uncertain_hat_mean_label)       
+            SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.4_Stds"].append(_y_simulation_uncertain_hat_std)
+            SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.5_Max_Density_Sigmoid"].append(_uncertain_max_density_sigmoid)
+            SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.6_Max_Density_Sig_Label"].append(_uncertain_max_density_label)
+            SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.8_Lower_Bound_Probability"].append(_uncertain_kde_lower_probability)
+            SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.9_Upper_Bound_Probability"].append(_uncertain_kde_upper_probability)
             
             # simulation history appendix
-            SIMULATION_COLLECTION["2_Original_Collection"]["2.1_Simulation_Means"].append(_y_simulation_original_hat_mean)
-            SIMULATION_COLLECTION["2_Original_Collection"]["2.2_Simulation_Stds"].append(_y_simulation_original_hat_std)
-            SIMULATION_COLLECTION["2_Original_Collection"]["2.3_Simulation_Max_Density_Sigmoid"].append(_original_max_density_sigmoid)
-            SIMULATION_COLLECTION["2_Original_Collection"]["2.4_Simulation_Max_Density_Sig_Label"].append(_original_max_density_label)
-            SIMULATION_COLLECTION["2_Original_Collection"]["2.5_Simulation_Lower_Bound_Probability"].append(_original_kde_lower_probability)
-            SIMULATION_COLLECTION["2_Original_Collection"]["2.6_Simulation_Upper_Bound_Probability"].append(_original_kde_upper_probability)
+            SIMULATION_COLLECTION["2_Original_Simulation"]["2.1_Means"].append(_y_simulation_original_hat_mean)
+            SIMULATION_COLLECTION["2_Original_Simulation"]["2.2_Mean_Labels"].append(_y_simulation_original_hat_mean_label)
+            SIMULATION_COLLECTION["2_Original_Simulation"]["2.4_Stds"].append(_y_simulation_original_hat_std)
+            SIMULATION_COLLECTION["2_Original_Simulation"]["2.5_Max_Density_Sigmoid"].append(_original_max_density_sigmoid)
+            SIMULATION_COLLECTION["2_Original_Simulation"]["2.6_Max_Density_Sig_Label"].append(_original_max_density_label)
+            SIMULATION_COLLECTION["2_Original_Simulation"]["2.8_Lower_Bound_Probability"].append(_original_kde_lower_probability)
+            SIMULATION_COLLECTION["2_Original_Simulation"]["2.9_Upper_Bound_Probability"].append(_original_kde_upper_probability)
 
-                    
-                    
+
+
             # visualizations for binary simulation // comparison plots
             if _simulation_visualizations:
+    
+                _fig, _axs = plt.subplots(2, 1, figsize=(17, 11))
     
                 """
                     Plot_5.1.a: Histogam which shows the uncertain kde simulated row sigmoid results with hue 
                 """
                 # visualize predictions with hist plots
-                plt.figure(figsize=(10, 6))
-                sns.histplot(data={"sigmoid" : _y_simulation_uncertain_hat,
+                sns.histplot(data={"Sigmoid Activations" : _y_simulation_uncertain_hat,
                                    "label" : _y_simulation_uncertain_hat_labels}, 
-                             x="sigmoid", 
+                             x="Sigmoid Activations", 
                              hue="label", 
                              hue_order=[0, 1], 
                              bins=15, 
                              binrange=(0, 1), 
                              stat="count", 
                              kde=False, 
-                             kde_kws={"cut":0})
+                             kde_kws={"cut":0},
+                             ax=_axs[0]).set_title(label=f'Row: {_row} Uncertain KDE Sim. Output Hist. Plot - Miss-Rate: {_MISS_RATE} - Sim.-Length: {_SIMULATION_LENGTH}')
                 
-                plt.axvline(x=y_original[_row], linewidth=4, linestyle = "-", color = "green", label="Original Label")
-                plt.axvline(x=y_original_hat_labels[_row], linewidth=4, linestyle = "-", color = "red", label="Predicted Model Label")
+                _axs[0].axvline(x=y_original[_row], linewidth=4, linestyle = "-", color = "green", label="Original Label")
+                _axs[0].axvline(x=y_original_hat_labels[_row], linewidth=2, alpha=1, linestyle = "--", color = "red", label="Predicted Model Label")
                 
                 if _IMPUTE:
-                    plt.axvline(x=y_impute_hat[_row], linewidth=2, linestyle = "--", color = "purple", label="Imputated Prediction") # impute prediction
+                    _axs[0].axvline(x=y_impute_hat[_row], linewidth=2, linestyle = "--", color = "purple", label="Impute Prediction" + " (" + _IMPUTE_METHOD.capitalize() + ")") # impute prediction
                 
-                plt.axvline(x=_y_simulation_original_hat_mean, linewidth=2, linestyle = "-.", color = "black", label="Orig. Mean Sim. Value") # orig. simulation prediction mean
-                plt.axvline(x=_y_simulation_uncertain_hat_mean, linewidth=2, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value") # uncert. simulation prediction mean
+                #plt.axvline(x=_y_simulation_original_hat_mean, linewidth=2, linestyle = "-.", color = "black", label="Orig. Mean Sim. Value") # orig. simulation prediction mean
+                #plt.axvline(x=_y_simulation_uncertain_hat_mean, linewidth=2, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value") # uncert. simulation prediction mean
                 
-                plt.title(f'Row: {_row} Uncertain KDE Sim. Output Hist Plot - Miss-Rate: {_MISS_RATE}')
-                plt.legend(["Original Label", "Predicted Model Label", "Imputated Prediction", "Orig. Mean Sim. Value", "Uncert. Mean Sim. Value", "Label 1", "Label 0"])
-                plt.xlabel('Sigmoid Activations')
-                plt.ylabel('Frequency')
-                plt.tight_layout()
-                plt.show()
-        
-        
-        
+                # Max Density Vertical Lines
+                _axs[0].axvline(x=_uncertain_max_density_sigmoid, color="grey", linestyle = "-.", linewidth=2, label="Uncert. KDE Max Density") 
+                _axs[0].axvline(x=_original_max_density_sigmoid, color="black", linestyle = "-.", linewidth=2, label="Orig. KDE Max Density")
+                
+                _axs[0].legend(["Original Label", "Predicted Model Label", "Impute Prediction" + " (" + _IMPUTE_METHOD.capitalize() + ")", "Orig. Mean Sim. Value", "Uncert. Mean Sim. Value", "Label 1", "Label 0"])
+
+
                 """
                     Plot_5.1.b: Histogam which shows the original kde simulated row sigmoid results with hue 
                 """
                 # visualize predictions with hist plots
-                plt.figure(figsize=(10, 6))
-                sns.histplot(data={"sigmoid" : _y_simulation_original_hat,
+                sns.histplot(data={"Sigmoid Activations" : _y_simulation_original_hat,
                                    "label" : _y_simulation_original_hat_labels}, 
-                             x="sigmoid", 
+                             x="Sigmoid Activations", 
                              hue="label", 
                              hue_order=[0, 1], 
                              bins=15, 
                              binrange=(0, 1), 
                              stat="count", 
                              kde=False, 
-                             kde_kws={"cut":0})
+                             kde_kws={"cut":0},
+                             ax=_axs[1])
                 
-                plt.axvline(x=y_original[_row], linewidth=4, linestyle = "-", color = "green", label="Original Label")
-                plt.axvline(x=y_original_hat_labels[_row], linewidth=4, linestyle = "-", color = "red", label="Predicted Model Label")
+                _axs[1].axvline(x=y_original[_row], linewidth=4, linestyle = "-", color = "green", label="Original Label")
+                _axs[1].axvline(x=y_original_hat_labels[_row], linewidth=2, alpha=1, linestyle = "--", color = "red", label="Predicted Model Label")
                 
                 if _IMPUTE:
-                    plt.axvline(x=y_impute_hat[_row], linewidth=2, linestyle = "--", color = "purple", label="Imputated Prediction") # impute prediction
+                    _axs[1].axvline(x=y_impute_hat[_row], linewidth=2, linestyle = "--", color = "purple", label="Impute Prediction" + " (" + _IMPUTE_METHOD.capitalize() + ")") # impute prediction
                 
-                plt.axvline(x=_y_simulation_original_hat_mean, linewidth=2, linestyle = "-.", color = "black", label="Orig. Mean Sim. Value") # orig. simulation prediction mean
-                plt.axvline(x=_y_simulation_uncertain_hat_mean, linewidth=2, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value") # uncert. simulation prediction mean
+                # Max Density Vertical Lines
+                _axs[1].axvline(x=_uncertain_max_density_sigmoid, color="grey", linestyle = "-.", linewidth=2, label="Uncert. KDE Max Density") 
+                _axs[1].axvline(x=_original_max_density_sigmoid, color="black", linestyle = "-.", linewidth=2, label="Orig. KDE Max Density")
                 
-                plt.title(f'Row: {_row} Original KDE Sim. Output Hist Plot - Miss-Rate: {_MISS_RATE}')
-                plt.legend(["Original Label", "Predicted Model Label", "Imputated Prediction", "Orig. Mean Sim. Value", "Uncert. Mean Sim. Value", "Label 1", "Label 0"])
-                plt.xlabel('Sigmoid Activations')
-                plt.ylabel('Frequency')
-                plt.tight_layout()
+                #plt.axvline(x=_y_simulation_original_hat_mean, linewidth=2, linestyle = "-.", color = "black", label="Orig. Mean Sim. Value") # orig. simulation prediction mean
+                #plt.axvline(x=_y_simulation_uncertain_hat_mean, linewidth=2, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value") # uncert. simulation prediction mean
+                
+                plt.title(f'Row: {_row} Original KDE Sim. Output Hist. Plot - Miss-Rate: {_MISS_RATE} - Sim.-Length: {_SIMULATION_LENGTH}')
+                _axs[1].legend(["Original Label", "Predicted Model Label", "Impute Prediction" + " (" + _IMPUTE_METHOD.capitalize() + ")", "Orig. Mean Sim. Value", "Uncert. Mean Sim. Value", "Label 1", "Label 0"])
                 plt.show()
+                
                 
                 
                 """
                     Plot_combined_output: KDE PLOT of Uncerlying uncertainty
                 """
 
+                # KDE Distributions
+                plt.plot(_x_axis, _uncertain_kde_pdfs, 
+                         label="Uncertain KDE Distribution", 
+                         color="grey", linestyle = "--")
+                
+                plt.plot(_x_axis, _original_kde_pdfs, 
+                         label="Original KDE Distribution", 
+                         color="black", linestyle = "--")
+                
                 #plot normal distribution with mean and std of simulated values
                 #plt.plot(_x_axis, stats.norm.pdf(_x_axis, _y_simulation_original_hat_mean, _y_simulation_original_hat_std), label="Orig. Sim. Distribution", color="black", linestyle = "-")
                 #plt.plot(_x_axis, stats.norm.pdf(_x_axis, _y_simulation_uncertain_hat_mean, _y_simulation_uncertain_hat_std), label="Uncert. Sim. Distribution", color="grey", linestyle = "--")
-                
-                plt.axvline(x=_y_simulation_uncertain_hat_mean, linewidth=1, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value") # mean uncertain kde prediction
-                plt.axvline(x=_y_simulation_original_hat_mean, linewidth=1, linestyle = "-.", color = "black", label="Orig. Mean Sim. Value") # mean original kde prediction
-                
-                plt.plot(_x_axis, _uncertain_kde_pdfs, label="Uncertain. Sim. Distribution // KDE", color="grey", linestyle = "--")
-                plt.plot(_x_axis, _original_kde_pdfs, label="Original. Sim. Distribution // KDE", color="black", linestyle = "--")
-                
-                # unweighted original kde 
-                #plt.plot(_x_axis, stats.gaussian_kde(_y_simulation_uncertain_hat, bw_method=__PRED_BANDWIDTH)(_x_axis), label="Original. unweighKDE", color="pink", linestyle = "--")
 
-                plt.axvline(x=y_original[_row], linewidth=4, linestyle = "-", color = "green", label="Original Label")
-                plt.axvline(x=y_original_hat_labels[_row], linewidth=2, alpha=1, linestyle = "--", color = "red", label="Predicted Model Label")
+                #plt.axvline(x=_y_simulation_uncertain_hat_mean, linewidth=1, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value") # mean uncertain kde prediction
+                #plt.axvline(x=_y_simulation_original_hat_mean, linewidth=1, linestyle = "-.", color = "black", label="Orig. Mean Sim. Value") # mean original kde prediction
+  
+
+                # Max Density Vertical Lines
+                plt.vlines(x=_uncertain_max_density_sigmoid, 
+                           ymin = 0, ymax = max(_uncertain_kde_density_peak_pdf), 
+                           color="grey", linestyle = "-.", linewidth=0.9, 
+                           label="Uncert. KDE Max Density") 
                 
+                plt.vlines(x=_original_max_density_sigmoid, 
+                           ymin = 0, ymax = max(_original_kde_density_peak_pdf), 
+                           color="black", linestyle = "-.", linewidth=0.9, 
+                           label="Orig. KDE Max Density")
+                
+                # Predicted and Original Label
+                plt.axvline(x=y_original[_row], 
+                            linewidth=4, linestyle = "-", 
+                            color = "green", label="Original Label")
+                
+                plt.axvline(x=y_original_hat_labels[_row], 
+                            linewidth=2, alpha=1, linestyle = "--", 
+                            color = "red", label="Predicted Model Label")
+                
+                # Impute Vertical Line
                 if _IMPUTE:
-                    plt.axvline(x=y_impute_hat[_row], linewidth=1, linestyle = "--", color = "purple", label="Imputated Prediction") # impute prediction
+                    plt.axvline(x=y_impute_hat[_row], 
+                                linewidth=1, linestyle = "--", color = "purple", 
+                                label="Impute Prediction" + " (" + _IMPUTE_METHOD.capitalize() + ")")
                 
-                plt.title(f'Row: {_row} Underlying Uncertainty of the Simulation - Miss-Rate: {_MISS_RATE} - Impute-Method: {_SIMULATE_METHOD}')
+                plt.title(f'Row: {_row} Underlying Uncertainty of the Simulation - Miss-Rate: {_MISS_RATE} - Sim.-Length: {_SIMULATION_LENGTH}')
                 plt.legend(bbox_to_anchor=(1.04, 0.5), loc="center left")
-                plt.xlabel('Sigmoid Activations')
-                plt.ylabel('Density (PDE)')
+                plt.xlabel('Sigmoid Activation')
+                plt.ylabel('Density')
+                plt.ylim([0, max(max(_uncertain_kde_pdfs), max(_original_kde_pdfs)) + 0.1])
                 plt.show()
     
     
     
-    
-    
 
-    
-    
-    
     
         if _unique_outcomes >= 3:
             
@@ -1316,12 +1366,12 @@ if _SIMULATE == True:
 
             # single
             sns.kdeplot(y_original_simulation_hat["logits"], 
-                        bw_method=__PRED_BANDWIDTH)  
+                        bw_method=_PRED_BANDWIDTH)  
             plt.title(f"Original Row - {_row} // Logit Plot")
             plt.show()
             
             sns.kdeplot(y_original_simulation_hat["predictions"], 
-                        bw_method=__PRED_BANDWIDTH)  
+                        bw_method=_PRED_BANDWIDTH)  
             plt.title(f"Original Row - {_row} // Prediction Softmax Plot")
             plt.show()
             """
@@ -1337,12 +1387,33 @@ if _SIMULATE == True:
             plt.show()
             """
             
-
+        
     # some accessory time metrics for comparison 
     _elapsed_time = time.strftime("%H:%M:%S", time.gmtime(time.time() - _sim_start_time  ))    
         
     SIMULATION_COLLECTION["0_Simulation_Info"]["0.7_elapsed_sim_time"] = str(_elapsed_time)
     
+    SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.3_Mean_Label_Frequenzy"] = pd.Series(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.2_Mean_Labels"]).value_counts()
+    SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.7_Max_Density_Sig_Label_Frequency"] = pd.Series(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.6_Max_Density_Sig_Label"]).value_counts()
+    SIMULATION_COLLECTION["2_Original_Simulation"]["2.3_Mean_Label_Frequenzy"] = pd.Series(SIMULATION_COLLECTION["2_Original_Simulation"]["2.2_Mean_Labels"]).value_counts()
+    SIMULATION_COLLECTION["2_Original_Simulation"]["2.7_Max_Density_Sig_Label_Frequency"] = pd.Series(SIMULATION_COLLECTION["2_Original_Simulation"]["2.6_Max_Density_Sig_Label"]).value_counts()
+            
+    
+    SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"] = {
+        "3.1_Explanation" : "Analysing the differences between Uncertain and Original KDE Simulations",
+        "3.2_Sim_Mean_dist" : np.abs(np.array(SIMULATION_COLLECTION["2_Original_Simulation"]["2.1_Means"]) - np.array(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.1_Means"])),
+        "3.3_Sim_Mean_dist_avg" : None,
+        "3.4_Sim_Stds_dist" : np.abs(np.array(SIMULATION_COLLECTION["2_Original_Simulation"]["2.4_Stds"]) - np.array(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.4_Stds"])),
+        "3.5_Sim_Stds_dist_avg" : None,
+        "3.6_Sim_Max_Density_Sigmoid_dist" : np.abs(np.array(SIMULATION_COLLECTION["2_Original_Simulation"]["2.5_Max_Density_Sigmoid"]) - np.array(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.5_Max_Density_Sigmoid"])),
+        "3.7_Sim_Max_Density_Sigmoid_dist_avg" : None
+        }
+        
+    SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["3.3_Sim_Mean_dist_avg"] = SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["3.2_Sim_Mean_dist"].mean()
+    SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["3.5_Sim_Stds_dist_avg"] = SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["3.4_Sim_Stds_dist"].mean()
+    SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["3.7_Sim_Max_Density_Sigmoid_dist_avg"] = SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["3.6_Sim_Max_Density_Sigmoid_dist"].mean()
+    
+
     print('\n\nSimulation execution time:', _elapsed_time)
     
     
@@ -1361,99 +1432,129 @@ if _SIMULATE == True:
         
     
     """
-            ----------------> simulations process end <----------------
-            ----------------> simulations process end <----------------
-            ----------------> simulations process end <----------------
-            ----------------> simulations process end <----------------
-            ----------------> simulations process end <----------------
-            ----------------> simulations process end <----------------
-            ----------------> simulations process end <----------------
-            ----------------> simulations process end <----------------
+            --------------------------------> simulations process end <--------------------------------
+            --------------------------------> simulations process end <--------------------------------
+            --------------------------------> simulations process end <--------------------------------
+            --------------------------------> simulations process end <--------------------------------
+            --------------------------------> simulations process end <--------------------------------
+            --------------------------------> simulations process end <--------------------------------
+            --------------------------------> simulations process end <--------------------------------
+            --------------------------------> simulations process end <--------------------------------
     """
     
-    
-    """
-        add more distance metrics to the SIMULATION_COLLECTION
-    """
 
-    SIMULATION_COLLECTION["3_Collection_analysis"] = {
-        "3.1_Explanation" : "Analysing the differences between Uncertain and Original KDE Simulations",
-        "3.2_Sim_Mean_diff" : np.array(SIMULATION_COLLECTION["2_Original_Collection"]["2.1_Simulation_Means"]) - np.array(SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.1_Simulation_Means"]),
-        "3.3_Sim_Mean_diff_average" : None,
-        "3.4_Sim_Stds_diff" : np.array(SIMULATION_COLLECTION["2_Original_Collection"]["2.2_Simulation_Stds"]) - np.array(SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.2_Simulation_Stds"]),
-        "3.5_Sim_Stds_diff_average" : None,
-        "3.6_Sim_Max_Density_Sigmoid_diff" : np.array(SIMULATION_COLLECTION["2_Original_Collection"]["2.3_Simulation_Max_Density_Sigmoid"]) - np.array(SIMULATION_COLLECTION["1_Uncertain_Collection"]["1.3_Simulation_Max_Density_Sigmoid"]),
-        "3.7_Sim_Max_Density_Sigmoid_average" : None
-        }
-        
-    SIMULATION_COLLECTION["3_Collection_analysis"]["3.3_Sim_Mean_diff_average"] = SIMULATION_COLLECTION["3_Collection_analysis"]["3.2_Sim_Mean_diff"].mean()
-    SIMULATION_COLLECTION["3_Collection_analysis"]["3.5_Sim_Stds_diff_average"] = SIMULATION_COLLECTION["3_Collection_analysis"]["3.4_Sim_Stds_diff"].mean()
-    SIMULATION_COLLECTION["3_Collection_analysis"]["3.7_Sim_Max_Density_Sigmoid_average"] = SIMULATION_COLLECTION["3_Collection_analysis"]["3.6_Sim_Max_Density_Sigmoid_diff"].mean()
-    
-
-    
-    
-    
-    
-
-    
     
     """
         Below: combined Comparisons between the prediction results of Uncertain and Certain KDE simulations
     """
     
-    if _unique_outcomes == 2:       # TODO try to stay away from mean prediction metric
-    
-    
+    if _unique_outcomes == 2:       
+        
+        
+        _fig, _axs = plt.subplots(2, 2, figsize=(17, 11))
+        
+        # visualize predictions - uncertain density
+        sns.histplot(data={"Sigmoid Activations" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.5_Max_Density_Sigmoid"], 
+                           "density_label" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.6_Max_Density_Sig_Label"]}, 
+                     x="Sigmoid Activations", 
+                     hue="density_label", 
+                     bins=15, 
+                     binrange=(0, 1), 
+                     stat="count", 
+                     kde=False, 
+                     kde_kws={"cut":0}, 
+                     ax=_axs[0, 0]).set(title=f'Simulation (uncertain_kde) - Miss-Rate: {_MISS_RATE} - Metric: Sim. Density')
 
-        """
-        y_uncertain_simulation_history_joint = np.stack([uncertain_simulation_history_mean, uncertain_simulation_history_mean_labels], 1)
-        y_uncertain_simulation_history_joint = pd.DataFrame(y_uncertain_simulation_history_joint, columns=["sigmoid", "label"])
+        # visualize predictions - original density
+        sns.histplot(data={"Sigmoid Activations" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.5_Max_Density_Sigmoid"], 
+                           "density_label" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.6_Max_Density_Sig_Label"]}, 
+                     x="Sigmoid Activations", 
+                     hue="density_label", 
+                     bins=15, 
+                     binrange=(0, 1), 
+                     stat="count", 
+                     kde=False, 
+                     kde_kws={"cut":0}, 
+                     ax=_axs[0, 1]).set(title=f'Simulation (original_kde) - Miss-Rate: {_MISS_RATE} - Metric: Sim. Density')
         
-        # visualize predictions
-        plt.figure(figsize=(10, 6))
-        sns.histplot(data=y_uncertain_simulation_history_joint, x="sigmoid", hue="label", hue_order=[0, 1], bins=15, binrange=(0, 1), stat="count", kde=False, kde_kws={"cut":0})
-        plt.xlabel('Sigmoid Activations')
-        plt.ylabel('Frequency')
-        plt.title(f'Uncertain (Unc. Stoch.) Combined Output Hist Plot - Miss-Rate: {_MISS_RATE} - Impute-Method: {_SIMULATE_METHOD}')
-        plt.tight_layout()
+        
+        # visualize predictions - uncertain mean simulation
+        #plt._figure(figsize=(10, 6))
+        sns.histplot(data={"Sigmoid Activations" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.1_Means"], 
+                           "mean_label" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.2_Mean_Labels"]}, 
+                     x="Sigmoid Activations", 
+                     hue="mean_label", 
+                     bins=15, 
+                     binrange=(0, 1), 
+                     stat="count", 
+                     kde=False, 
+                     kde_kws={"cut":0}, 
+                     ax=_axs[1, 0]).set(title=f'Simulation (uncertain_kde) - Miss-Rate: {_MISS_RATE} - Metric: Sim. Mean')
+
+
+        # visualize predictions - original mean simulation
+        #plt._figure(figsize=(10, 6))
+        sns.histplot(data={"Sigmoid Activations" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.1_Means"], 
+                           "mean_label" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.2_Mean_Labels"]}, 
+                     x="Sigmoid Activations", 
+                     hue="mean_label", 
+                     bins=15, 
+                     binrange=(0, 1), 
+                     stat="count", 
+                     kde=False, 
+                     kde_kws={"cut":0}, 
+                     ax=_axs[1, 1]).set(title=f'Simulation (original_kde) - Miss-Rate: {_MISS_RATE} - Metric: Sim. Mean')
         plt.show()
-        
-        
-        y_original_simulation_history_joint = np.stack([original_simulation_history_mean, original_simulation_history_mean_labels], 1)
-        y_original_simulation_history_joint = pd.DataFrame(y_original_simulation_history_joint, columns=["sigmoid", "label"])
-        
-        # visualize predictions
-        plt.figure(figsize=(10, 6))
-        sns.histplot(data=y_original_simulation_history_joint, x="sigmoid", hue="label", hue_order=[0, 1], bins=15, binrange=(0, 1), stat="count", kde=False, kde_kws={"cut":0})
-        plt.xlabel('Sigmoid Activations')
-        plt.ylabel('Frequency')
-        plt.title(f'Uncertain (Ori. Stoch.) Combined Output Hist Plot - Miss-Rate: {_MISS_RATE} - Impute-Method: {_SIMULATE_METHOD}')
-        plt.tight_layout()
-        plt.show()
-        
-        """
-        
+
+
+
+
         """
         if _get_simulated_prediction_metrics:
             
             utils.create_metrics(y_original, uncertain_simulation_history_mean_labels)
             plt.show()
-        """            
+        """
 
 
 
 
 
 if _load_simulated_results:
-    ## load results by following name convention
-    if _load_sim_res_name == "auto":
-        _load_name = str(_results_id) + "_" + str(_dataset) + "_" + str(_MISS_RATE) + "_" + str(_SIMULATION_RANGE)
-    else:
-        _load_name = _load_sim_res_name
+
+    # list all available files:
+    _available_files = os.listdir(_results_path)
+    
+    _file_found = False
+    for _i in _available_files:
+        if _i[0] == str(_load_results_id):
+            
+            _get_file = _available_files[int(_load_results_id)]
+            
+            if Path(os.path.join(_results_path, _get_file)).exists():
+                SIMULATION_RESULTS_LOADED = pickle.load(open(os.path.join(_results_path, _get_file), "rb"))
+                
+                print(f"File '{_get_file}' was successfully loaded!")
+                _file_found = True
+                
+            # break for loop if file was found
+            break
         
-    if Path(os.path.join(_results_path, _load_name)).exists():
-            load_results = pickle.load(open(os.path.join(_load_name, "rb")))
+    if _file_found == False: 
+        print(f"No file with ID '{_load_results_id}' was found!")
+
+    
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1471,6 +1572,8 @@ if _load_simulated_results:
         - 2: simulation results - metric mean 
         
 """
+
+""" # TODO
 if _IMPUTE == True and _SIMULATE == True:
     
     if len(_SIMULATION_RANGE) == len(_DATAFRAME_SIMULATE):
@@ -1522,7 +1625,7 @@ if _IMPUTE == True and _SIMULATE == True:
 
 
 
-
+"""
 
 
 
