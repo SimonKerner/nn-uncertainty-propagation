@@ -26,7 +26,7 @@ import seaborn as sns
 ##########################################################################################################################
     
     
-def plot_history(history, smooth=False, log_scale=False):
+def plot_history(history, smooth=False, log_scale=False, model_type=None):
     
     """
     Plots the training and validation metrics from the training history.
@@ -38,15 +38,30 @@ def plot_history(history, smooth=False, log_scale=False):
     
     """
     
-    metric_labels = {
-        'loss': 'Loss',
-        'accuracy': 'Accuracy',
-        'mse': 'Mean Squared Error',
-        'mae': 'Mean Absolute Error',
-        'mape': 'Mean Absolute Percentage Error',
-        'msle': 'Mean Squared Logarithmic Error',
-        'cosine_similarity': 'Cosine Similarity'
-    }
+
+    if model_type == "binary":
+        metric_labels = {
+            'loss': 'Loss',
+            'accuracy': 'Accuracy',
+            'mse': 'Mean Squared Error',
+            'mae': 'Mean Absolute Error',
+            'mape': 'Mean Absolute Percentage Error',
+            'msle': 'Mean Squared Logarithmic Error',
+            'cosine_similarity': 'Cosine Similarity'
+        }
+
+    elif model_type == "multi":
+        
+        metric_labels = {
+            'tf.nn.softmax_loss': 'tf.nn.softmax_loss',
+            'tf.nn.softmax_accuracy': 'tf.nn.softmax_accuracy',
+            'tf.math.sigmoid_loss': 'tf.math.sigmoid_loss',
+            'tf.math.sigmoid_accuracy': 'tf.math.sigmoid_accuracy',
+        }
+        
+    else:
+        return None
+    
 
     num_metrics = len(history.history)
     subplot_rows = (num_metrics + 1) // 2  # Adjust the subplot layout based on the number of metrics
@@ -135,29 +150,43 @@ def create_metrics(y_true, predictions):
         dict: Dictionary containing the calculated metrics.
 
     """
-    
+    print()
     # Scores
     accuracy = accuracy_score(y_true, predictions)
-    precision = precision_score(y_true, predictions)
-    recall = recall_score(y_true, predictions)
-    f1 = f1_score(y_true, predictions)
-    report = classification_report(y_true, predictions, target_names=['Rejected', 'Accepted'])
+    
+    if len(y_true.unique()) == 2:
+        precision = precision_score(y_true, predictions)
+        recall = recall_score(y_true, predictions)
+        f1 = f1_score(y_true, predictions)
+        
+        report = classification_report(y_true, predictions, target_names=['False', 'True'])
+        
+        
+        # Additional Metrics
+        metrics = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1-score': f1,
+            'classification_report': report,
+            }
+        
+    else:
+        
+        report = classification_report(y_true, predictions, target_names=["Label " + str(i) for i in y_true.unique()])
+        
+        # Additional Metrics
+        metrics = {
+            'accuracy': accuracy,
+            'classification_report': report,
+        }
 
     # Confusion Matrix
     cm = confusion_matrix(y_true, predictions)
-    display_labels = ['Rejected/Failure', 'Accepted/Success']
-    display = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=display_labels)
+    display = ConfusionMatrixDisplay(confusion_matrix=cm)
     display.plot()
 
-    # Additional Metrics
-    metrics = {
-        'accuracy': accuracy,
-        'precision': precision,
-        'recall': recall,
-        'f1-score': f1,
-        'classification_report': report,
-        'confusion_matrix': cm,
-    }
+    metrics["confusion_matrix"] = cm
 
     # Print Additional Metrics
     for metric, value in metrics.items():
@@ -165,12 +194,14 @@ def create_metrics(y_true, predictions):
         print(value)
         print()
 
+    print()
+
     return metrics
 
 
 
 
-def add_missing_values(df, miss_rate, random_seed=None):
+def add_missing_values(df, miss_rate, delete_mode="static", random_seed=None):
     
     """
     Adds missing values to a DataFrame based on the specified missing rate.
@@ -185,109 +216,44 @@ def add_missing_values(df, miss_rate, random_seed=None):
     
     """
     
-    df = df.copy()
-    
-    ix = [(row, col) for row in range(df.shape[0]) for col in range(df.shape[1])]
-    
     random.seed(random_seed)
     
-    for row, col in random.sample(ix, int(round(miss_rate * len(ix)))):
-        df.iat[row, col] = np.nan
+    df_original = df.copy()
+    df = df.iloc[:, :-1].copy()
+    
+    # -----> original technique for deleting values // deletes over the whole sample space by percentage
+    # miss rate should be a float value between 0 and 1
+    if delete_mode == "percentage":
+    
+        ix = [(row, col) for row in range(df.shape[0]) for col in range(df.shape[1])]
         
-    return df
-
-
-
-
-
-def kde_Imputer(dataframe, kernel="gaussian", bandwidth="scott", random_state=None, print_info=False):
-    
-    """
-    Imputes missing values in a DataFrame using Kernel Density Estimation (KDE).
-    
-    Args:
-        dataframe (pd.DataFrame): Input DataFrame.
-        kernel (str or dict): Kernel type or a mapping of column names to kernel types.
-                              Defaults to "gaussian".
-        bandwidth (str, float): Bandwidth estimation method or a fixed bandwidth value. Defaults to "scott".
-        random_state (int): Random seed for reproducibility. Defaults to None.
-        print_info (bool): Whether to print information about the KDE parameters. Defaults to True.
-    
-    Returns:
-        pd.DataFrame: DataFrame with missing values imputed using KDE.
-    
-    Raises:
-        ValueError: If invalid arguments are provided.
-    
-    """
-    
-    # Input validation
-    if not isinstance(dataframe, pd.DataFrame):
-        raise ValueError("The 'dataframe' argument must be a valid pandas DataFrame.")
-    
-    valid_kernels = ["gaussian", "tophat", "epanechnikov", "exponential", "linear", "cosine"]
-    if isinstance(kernel, str) and kernel not in valid_kernels:
-        raise ValueError(f"Invalid kernel type '{kernel}'. Valid options are: {', '.join(valid_kernels)}.")
-    
-    if isinstance(kernel, dict):
-        for col, k in kernel.items():
-            if k not in valid_kernels:
-                raise ValueError(f"Invalid kernel type '{k}' for column '{col}'. Valid options are: {', '.join(valid_kernels)}.")
-    
-    if not isinstance(bandwidth, (str, float, int)):
-        raise ValueError("The 'bandwidth' argument must be a string or a float.")
-    
-    if isinstance(kernel, str):
-        kernel_mapping = {column: kernel for column in dataframe.columns}
-    elif isinstance(kernel, dict):
-        kernel_mapping = kernel
-
-
-    imputed_df = dataframe.copy()
-    
-    for column in dataframe.columns:
-        values = dataframe[column].dropna().values.reshape(-1, 1)
+        for row, col in random.sample(ix, int(round(miss_rate * len(ix)))):
+            df.iat[row, col] = np.nan
         
-        kde = KernelDensity(kernel=kernel_mapping.get(column), bandwidth=bandwidth,)
-        kde.fit(values)
+        df_miss = df.merge(df_original.iloc[:,-1], left_index=True, right_index=True)
         
-        if print_info:
-            # Print the KernelDensity parameters for the current column
-            print(f"Column: {column}")
-            print(f"Kernel: {kde.kernel}")
-            print(f"Bandwidth: {kde.bandwidth}\n")
-
-            # KDE Plot of column without missing data
-            plt.figure(figsize=(8, 4))
-            sns.kdeplot(data=values, fill=True, color='skyblue', alpha=0.5)
-            plt.xlabel(column)
-            plt.ylabel('Density')
-            plt.title(f'KDE Plot of {column}')
-            plt.tight_layout()
-            plt.show()
-
-        missing_values = imputed_df[column].isnull()
-        num_missing = missing_values.sum()
-
-        if num_missing > 0:
-            kde_samples = kde.sample(num_missing, random_state=random_state)    
-            """
-            # Limit samples to the range of 0 and 1 for binary columns
-            if np.array_equal(np.unique(values), [0., 1.]):
-                
-                kde_samples = np.random.choice(np.clip(kde_samples, a_min=0., a_max=1.).flatten(), num_missing, replace=True)
-            
-            # if original columns do not have negative values, clip at lower limit
-            elif (values<0).sum() == 0:
+        return df_miss
+ 
     
-                kde_samples = np.random.choice(np.clip(kde_samples, a_min=0., a_max=None).flatten(), num_missing, replace=True)
-            """         
-            kde_samples = np.random.choice(kde_samples.reshape(-1), num_missing, replace=True)  # Reshape to match missing values
-            imputed_df.loc[missing_values, column] = kde_samples
+     
+    # -----> deletes specific amount of values in a row 
+    # miss rate should be a static int value smaller then max(column length) and bigger then 0
+    elif delete_mode == "static":
+        
+        for row in range(df.shape[0]):
+    
+            ix = [(row, col) for col in range(df.shape[1])]        
+    
+            for row, col in random.sample(ix, int(miss_rate)):
+                df.iat[row, col] = np.nan
+    
+    
+        df_miss = df.merge(df_original.iloc[:,-1], left_index=True, right_index=True)
 
-    return imputed_df
-
-
+        return df_miss
+    
+    else:
+        print("No valid delete mode found!")
 
     
     

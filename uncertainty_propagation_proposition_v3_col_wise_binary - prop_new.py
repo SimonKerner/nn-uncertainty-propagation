@@ -71,7 +71,7 @@ following all the different settings for this simulation run can be found
 ##########################################################################################################################
 
 #choose working dataset: "australian" or "climate_simulation", "wdbc" -> Breast Cancer Wisconsin (Diagnostic)
-_dataset = "climate_simulation"
+_dataset = "wdbc"
 
 
 # set random state          
@@ -95,7 +95,7 @@ _visualize_imputed_predictions = True
 
 # train or load model
 _train_model = False
-_save_new_model = True
+_save_new_model = False
 _load_model = True
 
 
@@ -111,7 +111,7 @@ _load_dataframe_miss = True
 _create_dataframe_miss = False
 
 _DELETE_MODE = "static"     # static (amount of values in row deleted) // percentage (value between 0 and 1)
-_MISS_RATE = 2
+_MISS_RATE = 10
 
 
 #KDE_VALUES OF EACH COLUMN - affected frames are DATAFRAME_SIMULATE -> Uncertain and DATAFRAME -> Certain/True
@@ -121,15 +121,16 @@ _compare_col_kde_mode = "combined"    # choose between "single", "combined", "bo
 
 # modes for deterministic/stochastic experiments on missing dataframes
 # choose between kde_imputer, mean, median, most_frequent, KNNImputer
-_IMPUTE = False
+_IMPUTE = True
 _IMPUTE_METHOD = "mean"
 
-_SIMULATE = False
-_SIMULATION_LENGTH = 100000
-_SIMULATION_RANGE = None
-#_SIMULATION_RANGE = range(0, 1, 1)
-_simulation_visualizations = True
+_SIMULATE = True
 _norm= True
+_SIMULATION_LENGTH = 100
+#_SIMULATION_RANGE = None
+_SIMULATION_RANGE = range(39, 40, 1)
+_simulation_visualizations = True
+
 _save_simulated_results = False
 
 _load_simulated_results = False
@@ -315,30 +316,13 @@ elif _unique_outcomes >= 3:
 
 if _train_model:
     
+    # layers of the network
+    _inputs = keras.Input(shape=(X_original.shape[1]))
+    #_x = layers.Dense(32, activation='relu')(_inputs)
+    _x = layers.Dense(16, activation='relu')(_inputs)  
+    #_x = layers.Dense(16, activation='relu')(_x)
     
-    if _dataset == "wdbc":
-        # layers of the network
-        
-        _batch_size = 15
-        _epochs = 50
-        
-        _inputs = keras.Input(shape=(X_original.shape[1]))
-        #_x = layers.Dense(32, activation='relu')(_inputs)
-        _x = layers.Dense(16, activation='relu')(_inputs)  
-        #_x = layers.Dense(16, activation='relu')(_x)
-        
     
-    elif _dataset == "climate_simulation":
-        # layers of the network
-        
-        _batch_size = 10
-        _epochs = 100
-        
-        _inputs = keras.Input(shape=(X_original.shape[1]))
-        _x = layers.Dense(9, activation='relu')(_inputs)
-        _x = layers.Dense(5, activation='relu')(_x)  
-        #_x = layers.Dense(8, activation='relu')(_x)
-
 
     if _unique_outcomes == 2:
         
@@ -359,8 +343,8 @@ if _train_model:
         model_history = model.fit(_X_original_train, 
                                   _y_original_train, 
                                   validation_data=[_X_original_test, _y_original_test], 
-                                  batch_size=_batch_size, 
-                                  epochs=_epochs, 
+                                  batch_size=15, 
+                                  epochs=50, 
                                   verbose=0)
         
         if _save_new_model:
@@ -854,6 +838,64 @@ if _SIMULATE:
 
 
 
+# TODO
+from filterpy import kalman
+from filterpy import common
+import random
+
+miss = DATAFRAME_MISS.loc[0]
+orig = DATAFRAME_ORIGINAL.loc[0]
+
+
+def pred(inputs, model):
+    
+    prediction = model.predict(inputs, verbose=0)
+    
+    return prediction
+
+
+points = kalman.MerweScaledSigmaPoints(4, alpha=.1, beta=2., kappa=-1)
+kf = kalman.UnscentedKalmanFilter(len(miss), 1, 1, pred, pred, points)
+kf.x = miss
+
+kdf_test = kf.predict()
+
+
+sys.exit()
+
+
+def fx(x, dt):
+     # state transition function - predict next state based
+     # on constant velocity model x = vt + x_0
+     F = np.array([[1, dt, 0, 0],
+                   [0, 1, 0, 0],
+                   [0, 0, 1, dt],
+                   [0, 0, 0, 1]], dtype=float)
+     return np.dot(F, x)
+
+def hx(x):
+    # measurement function - convert state into a measurement
+    # where measurements are [x_pos, y_pos]
+    return np.array([x[0], x[2]])
+
+dt = 0.1
+# create sigma points to use in the filter. This is standard for Gaussian processes
+points = kalman.MerweScaledSigmaPoints(4, alpha=.1, beta=2., kappa=-1)
+
+kf = kalman.UnscentedKalmanFilter(dim_x=4, dim_z=2, dt=dt, fx=fx, hx=hx, points=points)
+kf.x = np.array([-1., 1., -1., 1]) # initial state
+kf.P *= 0.2 # initial uncertainty
+z_std = 0.1
+kf.R = np.diag([z_std**2, z_std**2]) # 1 standard
+kf.Q = common.Q_discrete_white_noise(dim=2, dt=dt, var=0.01**2, block_size=2)
+
+zs = [[i+np.randn()*z_std, i+np.randn()*z_std] for i in range(50)] # measurements
+for z in zs:
+    kf.predict()
+    kf.update(z)
+    print(kf.x, 'log-likelihood', kf.log_likelihood)
+
+
 ##########################################################################################################################
 # experiments modul 2 - with simulation --> missing data (row wise) --> useage of kde of columns to simulate outcome
 ##########################################################################################################################
@@ -908,10 +950,9 @@ if _SIMULATE == True:
             "0.3_dataset_size" : DATAFRAME_ORIGINAL.size,
             "0.4_miss_rate" : _MISS_RATE,
             "0.5_num_missing" : DATAFRAME_MISS.isnull().sum().sum(),
-            "0.6_miss_rate_%" : round(DATAFRAME_MISS.isnull().sum().sum() * 100 / DATAFRAME_ORIGINAL.size, 2),
-            "0.7_simulation_length" : _SIMULATION_LENGTH,
-            "0.8_elapsed_sim_time" : "",
-            "0.9_simulated_rows" : len(_SIMULATION_RANGE)
+            "0.6_simulation_length" : _SIMULATION_LENGTH,
+            "0.7_elapsed_sim_time" : "",
+            "0.8_simulated_rows" : len(_SIMULATION_RANGE)
             },
         "1_Uncertain_Simulation" : {
             "1.1_Means" : [],
@@ -1034,6 +1075,8 @@ if _SIMULATE == True:
         _X_simulation_uncertain = _DATAFRAME_MC_UNCERTAIN_KDE_SIMULATION.iloc[:, 0:-1]
         
         _X_simulation_original = _DATAFRAME_MC_ORIGINAL_KDE_SIMULATION.iloc[:, 0:-1]
+            
+        
         
         
         if _unique_outcomes == 2:
@@ -1104,10 +1147,11 @@ if _SIMULATE == True:
                                                     bw_method=_PRED_BANDWIDTH, 
                                                     weights=adjust_edgeweight(_y_simulation_original_hat))
             
-            _original_kde_pdfs = _original_simulation_result_kde.pdf(_x_axis) 
+            _original_kde_pdfs = _original_simulation_result_kde.pdf(_x_axis) # _x_axis
             
             if _norm:
                 _original_kde_pdfs = _scaler.fit_transform(_original_kde_pdfs.reshape(-1, 1)).reshape(-1)   # TODO
+            
             
             _original_kde_density_peak_indices = scipy.signal.find_peaks(_original_kde_pdfs)[0]
             
@@ -1156,10 +1200,9 @@ if _SIMULATE == True:
                     "0.1_row_id" : _row,
                     "0.2_dataset" : _dataset,
                     "0.3_miss_rate" : _MISS_RATE,
-                    "0.4_miss_rate_%" : round(_DATAFRAME_SIMULATE_ROW.isnull().sum().sum() * 100 / len(_DATAFRAME_SIMULATE_ROW[:-1]),2),
-                    "0.5_Simulation_length" : _SIMULATION_LENGTH,
-                    "0.6_Simulated_row" : _DATAFRAME_SIMULATE_ROW,
-                    "0.7_uncertain_attributes" : _uncertain_attributes,
+                    "0.4_Simulation_length" : _SIMULATION_LENGTH,
+                    "0.5_Simulated_row" : _DATAFRAME_SIMULATE_ROW,
+                    "0.6_uncertain_attributes" : _uncertain_attributes,
                     },
                 "1_Uncertain Simulation Collection" : {
                     "1.01_x_input_stats" : _X_simulation_uncertain.describe(),
@@ -1421,7 +1464,7 @@ if _SIMULATE == True:
     # some accessory time metrics for comparison 
     _elapsed_time = time.strftime("%H:%M:%S", time.gmtime(time.time() - _sim_start_time  ))    
         
-    SIMULATION_COLLECTION["0_Simulation_Info"]["0.8_elapsed_sim_time"] = str(_elapsed_time)
+    SIMULATION_COLLECTION["0_Simulation_Info"]["0.7_elapsed_sim_time"] = str(_elapsed_time)
     
     SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.3_Mean_Label_Frequenzy"] = pd.Series(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.2_Mean_Labels"]).value_counts()
     SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.7_Max_Density_Sig_Label_Frequency"] = pd.Series(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.6_Max_Density_Sig_Label"]).value_counts()
@@ -1590,7 +1633,6 @@ if _IMPUTE == True and _SIMULATE == True:
                                                           
         
         DATAFRAME_COMBINED_LABELS = pd.DataFrame(data={"Original_Label" : DATAFRAME_COMBINED_RESULTS.loc["Original_Label"],
-                                                       
                                                        "0_Predicted_Label" : DATAFRAME_COMBINED_RESULTS.loc["0_Predicted_Label"],
                                                        "0_Predicted_Label_Corr_Asign" : (DATAFRAME_COMBINED_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_RESULTS.loc["0_Predicted_Label"]),
                                                        
