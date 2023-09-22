@@ -71,7 +71,7 @@ following all the different settings for this simulation run can be found
 ##########################################################################################################################
 
 #choose working dataset: "australian" or "climate_simulation", "wdbc" -> Breast Cancer Wisconsin (Diagnostic)
-_dataset = "climate_simulation"
+_dataset = "wdbc"
 
 
 # set random state          
@@ -111,26 +111,26 @@ _load_dataframe_miss = True
 _create_dataframe_miss = False
 
 _DELETE_MODE = "static"     # static (amount of values in row deleted) // percentage (value between 0 and 1)
-_MISS_RATE = 2
+_MISS_RATE = 5
 
 
 #KDE_VALUES OF EACH COLUMN - affected frames are DATAFRAME_SIMULATE -> Uncertain and DATAFRAME -> Certain/True
-_compare_col_kde_distributions = False
+_compare_col_kde_distributions = True
 _compare_col_kde_mode = "combined"    # choose between "single", "combined", "both"
 
 
 # modes for deterministic/stochastic experiments on missing dataframes
 # choose between kde_imputer, mean, median, most_frequent, KNNImputer
-_IMPUTE = False
+_IMPUTE = True
 _IMPUTE_METHOD = "mean"
 
-_SIMULATE = False
-_SIMULATION_LENGTH = 100000
-_SIMULATION_RANGE = None
-#_SIMULATION_RANGE = range(0, 1, 1)
+_SIMULATE = True
+_SIMULATION_LENGTH = 10000
+#_SIMULATION_RANGE = None
+_SIMULATION_RANGE = range(0, 5, 1)
 _simulation_visualizations = True
 _norm= True
-_save_simulated_results = False
+_save_simulated_results = True
 
 _load_simulated_results = False
 _load_results_id = 0
