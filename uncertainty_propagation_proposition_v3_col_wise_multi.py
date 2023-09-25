@@ -100,8 +100,8 @@ _load_model = True
 
 
 # prediction metrics
-_get_original_prediction_metrics = True
-_get_imputed_prediction_metrics = True
+_get_original_prediction_metrics = False
+_get_imputed_prediction_metrics = False
 _get_simulated_prediction_metrics = False
 
 
@@ -310,7 +310,8 @@ if _train_model:
                               verbose=0)
     
     model.summary()
-    # 
+    
+    
     if _save_new_model:
         # save new model
         model.save(os.path.join(_model_path, _dataset + "_multi_model.keras"))
@@ -437,6 +438,16 @@ elif _create_dataframe_miss:
      
 
 
+print("\nDataframe Statistics:")
+print("Size of Original Dataframe:", DATAFRAME_ORIGINAL.size)
+print(f"Deletion Settings: Mode={_DELETE_MODE} and Rate={_MISS_RATE}")
+print("Deleted:", round(DATAFRAME_MISS.isnull().sum().sum()), "Values from Original")
+# missing values per column
+#DATAFRAME_MISS.isnull().mean() * 100
+print("Missing data: ~" + str(round(DATAFRAME_MISS.isnull().sum().sum() * 100 / DATAFRAME_ORIGINAL.size, 2)), "%\n")
+
+
+
 # get statistics of DATAFRAME_MISS
 DATAFRAME_MISS_STATS = DATAFRAME_MISS.describe()
 
@@ -490,36 +501,39 @@ if _visiualize_data:
 ##########################################################################################################################
     
     
-if _IMPUTE and _IMPUTE_METHOD == "mean":
-    DATAFRAME_IMPUTE = DATAFRAME_MISS.copy()
-    
-    _simp_imp = SimpleImputer(strategy="mean")
-    DATAFRAME_IMPUTE = pd.DataFrame(_simp_imp.fit_transform(DATAFRAME_IMPUTE), columns=_column_names)
-    
-    
-elif _IMPUTE and _IMPUTE_METHOD == "median":
-    DATAFRAME_IMPUTE = DATAFRAME_MISS.copy()
-    
-    _simp_imp = SimpleImputer(strategy="median")
-    DATAFRAME_IMPUTE = pd.DataFrame(_simp_imp.fit_transform(DATAFRAME_IMPUTE), columns=_column_names)
-
-
-elif _IMPUTE and _IMPUTE_METHOD == "most_frequent":
-    DATAFRAME_IMPUTE = DATAFRAME_MISS.copy()
-    
-    _simp_imp = SimpleImputer(strategy="most_frequent")
-    DATAFRAME_IMPUTE = pd.DataFrame(_simp_imp.fit_transform(DATAFRAME_IMPUTE), columns=_column_names)
-    
-    
-elif _IMPUTE and _IMPUTE_METHOD == "KNNImputer":
-    DATAFRAME_IMPUTE = DATAFRAME_MISS.iloc[:,:-1].copy()
-    
-    _knn_imp = KNNImputer(n_neighbors=5)
-    DATAFRAME_IMPUTE = pd.DataFrame(_knn_imp.fit_transform(DATAFRAME_IMPUTE), columns=_column_names)
-    
-    
 if _IMPUTE:
-    DATAFRAME_IMPUTE_STATS = DATAFRAME_IMPUTE.describe()
+    
+    # mean imputation
+    _mean_imp = SimpleImputer(strategy="mean")
+    _DATAFRAME_MEAN_IMPUTE = pd.DataFrame(_mean_imp.fit_transform(DATAFRAME_MISS.copy()), columns=_column_names)
+    
+    
+    # median imputation
+    _median_imp = SimpleImputer(strategy="median")
+    _DATAFRAME_MEDIAN_IMPUTE = pd.DataFrame(_median_imp.fit_transform(DATAFRAME_MISS.copy()), columns=_column_names)
+
+
+    # mode imputation
+    _mode_imp = SimpleImputer(strategy="most_frequent")
+    _DATAFRAME_MODE_IMPUTE = pd.DataFrame(_mode_imp.fit_transform(DATAFRAME_MISS.copy()), columns=_column_names)
+    
+    
+    # knn imputation
+    _knn_imp = KNNImputer(n_neighbors=5)
+    _DATAFRAME_KNN_IMPUTE = pd.DataFrame(_knn_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1])
+    _DATAFRAME_KNN_IMPUTE = _DATAFRAME_KNN_IMPUTE.merge(DATAFRAME_ORIGINAL["Outcome"], left_index=True, right_index=True)
+    
+    
+    DATAFRAME_IMPUTE_COLLECTION = {"MEAN_IMPUTE" : _DATAFRAME_MEAN_IMPUTE,
+                               "MEDIAN_IMPUTE" : _DATAFRAME_MEDIAN_IMPUTE,
+                               "MODE_IMPUTE" : _DATAFRAME_MODE_IMPUTE,
+                               "KNN_IMPUTE" : _DATAFRAME_KNN_IMPUTE}
+    
+    
+    DATAFRAME_IMPUTE_STATS = {"MEAN_IMPUTE" : _DATAFRAME_MEAN_IMPUTE.describe(),
+                              "MEDIAN_IMPUTE" : _DATAFRAME_MEDIAN_IMPUTE.describe(),
+                              "MODE_IMPUTE" : _DATAFRAME_MODE_IMPUTE.describe(),
+                              "KNN_IMPUTE" : _DATAFRAME_KNN_IMPUTE.describe()}
     
     
 if _SIMULATE:
@@ -538,50 +552,67 @@ if _IMPUTE == False and _SIMULATE == False:
 # experiments modul 1 - with imputation --> full data --> get_predictions
 ##########################################################################################################################
 
+
 if _IMPUTE:
     
     print("\nPredictions for dataset with uncertainties and imputed values:")
     
-    X_impute = DATAFRAME_IMPUTE.iloc[:, 0:-1]
+    DATAFRAME_IMPUTE_RESULTS_COLLECTION = {}
     
-
-    y_impute_hat = model.predict(X_impute)
-    
-    y_impute_hat_labels_soft = np.argmax(y_impute_hat["softmax"], axis=1)
-    y_impute_hat_labels_sig = np.argmax(y_impute_hat["sigmoid"], axis=1)
-    
-    y_impute_hat_label_soft_freq = pd.Series(y_impute_hat_labels_soft).value_counts()
-    y_impute_hat_label_sig_freq = pd.Series(y_impute_hat_labels_sig).value_counts()
-    
-    
-    if _visualize_imputed_predictions:
+    for _frame_key in DATAFRAME_IMPUTE_COLLECTION:
         
-        # visualize predictions
-        plt.figure(figsize=(10, 6))
-        sns.histplot(data=y_impute_hat_labels_soft, bins=10, stat="count", kde=False, kde_kws={"cut":0})
-        plt.xlabel('Softmax Activations')
-        plt.ylabel('Frequency')
-        plt.title(f'Uncertain (deter.) Combined Output Hist Plot - Miss-Rate: {_MISS_RATE} - Impute-Method: {_IMPUTE_METHOD} - Softmax')
-        plt.tight_layout()
-        plt.show()
+        print(f"Calculating results for dataframe: {_frame_key}")
+        
+        # create input frame for model predictions
+        _X_impute = DATAFRAME_IMPUTE_COLLECTION[_frame_key].iloc[:, 0:-1]
+         
+        # get results of prediction 
+        _y_impute_hat = model.predict(_X_impute)#.flatten()
+        
+        _y_impute_hat_labels_soft = np.argmax(_y_impute_hat["softmax"], axis=1)
+        _y_impute_hat_labels_sig = np.argmax(_y_impute_hat["sigmoid"], axis=1)
+        
+        _y_impute_hat_label_soft_freq = pd.Series(_y_impute_hat_labels_soft).value_counts()
+        _y_impute_hat_label_sig_freq = pd.Series(_y_impute_hat_labels_sig).value_counts()
+        
 
-
-        # visualize predictions
-        plt.figure(figsize=(10, 6))
-        sns.histplot(data=y_impute_hat_labels_soft, bins=10, stat="count", kde=False, kde_kws={"cut":0})
-        plt.xlabel('Sigmoid Activations')
-        plt.ylabel('Frequency')
-        plt.title(f'Uncertain (deter.) Combined Output Hist Plot - Miss-Rate: {_MISS_RATE} - Impute-Method: {_IMPUTE_METHOD} - Sigmoid')
-        plt.tight_layout()
-        plt.show()
+        
+        
+        
+        DATAFRAME_IMPUTE_RESULTS_COLLECTION[_frame_key] = {"softmax" : {"y_impute_hat" : _y_impute_hat["softmax"],
+                                                                        "y_impute_hat_labels" : _y_impute_hat_labels_soft,
+                                                                        "y_impute_hat_label_frequency" : _y_impute_hat_label_soft_freq
+                                                                        },
+                                                           "sigmoid" : {"y_impute_hat" : _y_impute_hat["sigmoid"],
+                                                                        "y_impute_hat_labels" : _y_impute_hat_labels_sig,
+                                                                        "y_impute_hat_label_frequency" : _y_impute_hat_label_sig_freq
+                                                                        }
+                                                           }
+        
+        
+        if _visualize_imputed_predictions:
+            
+            # visualize predictions
+            plt.figure(figsize=(10, 6))
+            sns.histplot(data=_y_impute_hat_labels_soft, bins=10, stat="count", kde=False, kde_kws={"cut":0})
+            plt.xlabel('Softmax Activations')
+            plt.ylabel('Frequency')
+            plt.title(f'Uncertain imputated dataframe combined output - Miss-Rate: {_MISS_RATE} - Impute-Method: {_frame_key.replace("_IMPUTE", "")} - Softmax')
+            plt.tight_layout()
+            plt.show()
+    
+    
+            # visualize predictions
+            plt.figure(figsize=(10, 6))
+            sns.histplot(data=_y_impute_hat_labels_soft, bins=10, stat="count", kde=False, kde_kws={"cut":0})
+            plt.xlabel('Sigmoid Activations')
+            plt.ylabel('Frequency')
+            plt.title(f'Uncertain imputated dataframe combined output - Miss-Rate: {_MISS_RATE} - Impute-Method: {_frame_key.replace("_IMPUTE", "")} - Sigmoid')
+            plt.tight_layout()
+            plt.show()
 
     
-    if _get_imputed_prediction_metrics:
-        
-        """   
-        utils.create_metrics(y_original, y_impute_hat_labels)
-        plt.show()
-        """
+
 
 
 
@@ -1217,8 +1248,8 @@ if _SIMULATE == True:
                          kde_kws={"cut":0},
                          ax=_axs[plot]).set_title(label=f'Class: {plot} Sigmoid Activation. Plot - Miss-Rate: {_MISS_RATE} - Sim.-Length: {_SIMULATION_LENGTH}')
         
-            if _IMPUTE:
-                _axs[plot].axvline(x=y_impute_hat["sigmoid"][_row][plot], linewidth=4, linestyle = "--", color = "purple", label="Impute Prediction" + " (" + _IMPUTE_METHOD.capitalize() + ")") # impute prediction
+            #if _IMPUTE:
+            #    _axs[plot].axvline(x=y_impute_hat["sigmoid"][_row][plot], linewidth=4, linestyle = "--", color = "purple", label="Impute Prediction" + " (" + _IMPUTE_METHOD.capitalize() + ")") # impute prediction
         
         
             #_axs[plot].axvline(x=y_original[_row], linewidth=8, linestyle = "-", color = "green", label="Original Label")
