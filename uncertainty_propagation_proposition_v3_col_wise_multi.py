@@ -20,7 +20,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-
+from sklearn.metrics import mean_squared_error as mse
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
@@ -94,8 +94,8 @@ _visualize_imputed_predictions = True
 
 
 # train or load model
-_train_model = False
-_save_new_model = False
+_train_model = True
+_save_new_model = True
 _load_model = True
 
 
@@ -110,7 +110,6 @@ _get_simulated_prediction_metrics = False
 _load_dataframe_miss = True
 _create_dataframe_miss = True
 
-
 _DELETE_MODE = "static"     # static (amount of values in row deleted) // percentage (value between 0 and 1)
 _MISS_RATE = 2
 
@@ -123,15 +122,16 @@ _compare_col_kde_mode = "combined"    # choose between "single", "combined", "bo
 # modes for deterministic/stochastic experiments on missing dataframes
 # choose between kde_imputer, mean, median, most_frequent, KNNImputer
 _IMPUTE = True
-_IMPUTE_METHOD = "mean"
+
 
 _SIMULATE = True
-_norm= True
-_SIMULATION_LENGTH = 1000
+_monte_carlo = False
+_latin_hypercube = True
+_SIMULATION_LENGTH = 100000
 #_SIMULATION_RANGE = None
-_SIMULATION_RANGE = range(4, 6, 1)
+_SIMULATION_RANGE = range(0, 2, 1)
 _simulation_visualizations = True
-_norm= False
+_norm= True
 _save_simulated_results = False
 
 _load_simulated_results = False
@@ -295,7 +295,7 @@ if _train_model:
     # compile model
     model.compile(optimizer=keras.optimizers.Adam(),
                   loss={"sigmoid": keras.losses.BinaryCrossentropy(), #lambda y_true, y_pred: 0.0, #
-                        "softmax": lambda y_true, y_pred: 0.0}, #keras.losses.CategoricalCrossentropy()
+                        "softmax": keras.losses.CategoricalCrossentropy()}, # lambda y_true, y_pred: 0.0
                   metrics=["accuracy"])
     
     
@@ -361,18 +361,18 @@ print("\nPredictions for complete Dataset without uncertainties:")
     
 y_original_hat = model.predict(X_original)
 
-y_original_hat_labels_soft = np.argmax(y_original_hat["softmax"], axis=1)
-y_original_hat_labels_sig = np.argmax(y_original_hat["sigmoid"], axis=1)
+y_original_hat_label = {"softmax" : np.argmax(y_original_hat["softmax"], axis=1),
+                        "sigmoid" : np.argmax(y_original_hat["sigmoid"], axis=1)} 
 
-y_original_hat_label_soft_freq = pd.Series(y_original_hat_labels_soft).value_counts()
-y_original_hat_label_sig_freq = pd.Series(y_original_hat_labels_soft).value_counts()
+y_original_hat_label_soft_freq = pd.Series(y_original_hat_label["softmax"]).value_counts()
+y_original_hat_label_sig_freq = pd.Series(y_original_hat_label["sigmoid"]).value_counts()
 
 if _visualize_original_predictions:
     
     
     # visualize predictions
     plt.figure(figsize=(10, 6))
-    sns.histplot(data=y_original_hat_labels_soft, 
+    sns.histplot(data=y_original_hat_label["softmax"], 
                  bins=10, 
                  stat="count")
     plt.xlabel('Softmax Activations')
@@ -384,7 +384,7 @@ if _visualize_original_predictions:
     
     # visualize predictions
     plt.figure(figsize=(10, 6))
-    sns.histplot(data=y_original_hat_labels_sig, 
+    sns.histplot(data=y_original_hat_label["sigmoid"], 
                  bins=10, 
                  stat="count")
     plt.xlabel('Sigmoid Activations')
@@ -394,12 +394,13 @@ if _visualize_original_predictions:
     plt.show()
 
 
+"""
 if _get_original_prediction_metrics:
     
 
     utils.create_metrics(y_original, y_original_hat_labels_soft)
     plt.show()
-
+"""
 
 
 
@@ -507,22 +508,28 @@ if _IMPUTE:
     _mean_imp = SimpleImputer(strategy="mean")
     _DATAFRAME_MEAN_IMPUTE = pd.DataFrame(_mean_imp.fit_transform(DATAFRAME_MISS.copy()), columns=_column_names)
     
+    _INPUT_RMSE_MEAN = mse(DATAFRAME_ORIGINAL, _DATAFRAME_MEAN_IMPUTE, squared=False)
     
     # median imputation
     _median_imp = SimpleImputer(strategy="median")
     _DATAFRAME_MEDIAN_IMPUTE = pd.DataFrame(_median_imp.fit_transform(DATAFRAME_MISS.copy()), columns=_column_names)
 
+    _INPUT_RMSE_MEDIAN = mse(DATAFRAME_ORIGINAL, _DATAFRAME_MEDIAN_IMPUTE, squared=False)
 
     # mode imputation
     _mode_imp = SimpleImputer(strategy="most_frequent")
     _DATAFRAME_MODE_IMPUTE = pd.DataFrame(_mode_imp.fit_transform(DATAFRAME_MISS.copy()), columns=_column_names)
     
+    _INPUT_RMSE_MODE = mse(DATAFRAME_ORIGINAL, _DATAFRAME_MODE_IMPUTE, squared=False)
     
     # knn imputation
     _knn_imp = KNNImputer(n_neighbors=5)
     _DATAFRAME_KNN_IMPUTE = pd.DataFrame(_knn_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1])
     _DATAFRAME_KNN_IMPUTE = _DATAFRAME_KNN_IMPUTE.merge(DATAFRAME_ORIGINAL["Outcome"], left_index=True, right_index=True)
     
+    
+    _INPUT_RMSE_KNNIMP = mse(DATAFRAME_ORIGINAL, _DATAFRAME_KNN_IMPUTE, squared=False)
+
     
     DATAFRAME_IMPUTE_COLLECTION = {"MEAN_IMPUTE" : _DATAFRAME_MEAN_IMPUTE,
                                "MEDIAN_IMPUTE" : _DATAFRAME_MEDIAN_IMPUTE,
@@ -762,6 +769,42 @@ if _SIMULATE == True:
         some necessary variables and for further computation or history collection
     """
     
+    def kde_latin_hypercube_sampler(kde_collection, sim_length, random_state):
+        
+        """
+            # @https://github.com/scipy/scipy/blob/v1.3.3/scipy/stats/kde.py#L439
+            # function has been rewritten to hande latin hypercube sampling
+        """
+        
+        # sample in 1 dimension with specific simulation length
+        lhs_sampler = stats.qmc.LatinHypercube(1, seed=random_state)
+        lhs_sample = lhs_sampler.random(n=sim_length)
+        
+        # get the underlying dataset of kde_collection
+        kde_dataset = kde_collection.dataset.flatten()
+    
+        # scale the created lhs samples // mul with 100 for index
+        _sample_scaled = stats.qmc.scale(lhs_sample, min(kde_dataset), max(kde_dataset)).flatten()
+        #_uncertain_sample_scaled.sort()
+        #uncertain_kde = kde_collection_uncertain[_key](_uncertain_sample_scaled)
+        #plt.plot(np.linspace(0, 1, _SIMULATION_LENGTH), uncertain_kde)
+    
+        norm = np.transpose(np.random.multivariate_normal(np.zeros((kde_collection.d,), float),
+                                             kde_collection.covariance, size=_SIMULATION_LENGTH))
+        
+        # original function index picker
+        #indices = random.choice(kde_collection_uncertain[_key].n, size=10, p=kde_collection_uncertain[_key].weights)
+        
+        # new index picker with lhs functionality
+        indices = np.array(_sample_scaled * 100, dtype="int32")
+        
+        means = kde_collection.dataset[:, indices]
+        
+        return means + norm
+    
+    
+    
+    
     # Weighting and clipping
     # Amount of density below 0 & above 1
     def adjust_edgeweight(y_hat):
@@ -781,12 +824,18 @@ if _SIMULATE == True:
         return edgeweight
     
     
+    
+    
     #x-axis ranges from 0 and 1 with .001 steps -- is also used for sigmoid accuracy
     # x-axis can be interpreted as sigmoid values between 0 and 1 with above mentioned steps (accuracy)
-    if _SIMULATION_LENGTH <= 10.000:
-        _x_axis = np.arange(0.0, 1.0, 0.000005)
+    if _SIMULATION_LENGTH < 10000:
+        _x_axis = np.arange(0.0, 1.0, 0.00005)
+    elif _SIMULATION_LENGTH <= 50000:
+        _x_axis = np.arange(0.0, 1.0, 0.0005)
     else:
         _x_axis = np.arange(0.0, 1.0, 0.001)
+        
+        
         
     # helper to handle multiple _classes
     _classes = ["Class " + str(i) for i in range(_unique_outcomes)]
@@ -807,6 +856,7 @@ if _SIMULATE == True:
             },
         "1_Uncertain_Simulation" : {
             "Softmax" : {
+                "1.1.0_Input_RMSE" : [],
                 "1.1.1_Means" : [],
                 "1.1.2_Mean_Labels" : [],
                 "1.1.3_Mean_Label_Frequenzy" : [],
@@ -818,6 +868,7 @@ if _SIMULATE == True:
                 "1.1.9_Upper_Bound_Probability" : []
                 },
             "Sigmoid" : {
+                "1.2.0_Input_RMSE" : [],
                 "1.2.1_Means" : [],
                 "1.2.2_Mean_Labels" : [],
                 "1.2.3_Mean_Label_Frequenzy" : [],
@@ -831,6 +882,7 @@ if _SIMULATE == True:
             },
         "2_Original_Simulation" : {
             "Softmax" : {
+                "2.1.0_Input_RMSE" : [],
                 "2.1.1_Means" : [],
                 "2.1.2_Mean_Labels" : [],
                 "2.1.3_Mean_Label_Frequenzy" : [],
@@ -842,6 +894,7 @@ if _SIMULATE == True:
                 "2.1.9_Upper_Bound_Probability" : []
                 },
             "Sigmoid" : {
+                "2.2.0_Input_RMSE" : [],
                 "2.2.1_Means" : [],
                 "2.2.2_Mean_Labels" : [],
                 "2.2.3_Mean_Label_Frequenzy" : [],
@@ -894,12 +947,22 @@ if _SIMULATE == True:
         _uncertain_sample_collection = []
         _original_sample_collection = [] 
         
+        # sample from uncertain and original kde for input imputation
         for _key in _uncertain_attributes:
+
+            if _monte_carlo:
+                
+                # resample randomly a new dataset of the underlying kde
+                uncertain_sample = kde_collection_uncertain[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
+                original_sample = kde_collection_original[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
+    
+        
+            if _latin_hypercube:
+                
+                _uncertain_sample = kde_latin_hypercube_sampler(kde_collection_uncertain[_key], _SIMULATION_LENGTH, _RANDOM_STATE).flatten()
+                _original_sample = kde_latin_hypercube_sampler(kde_collection_original[_key], _SIMULATION_LENGTH, _RANDOM_STATE).flatten()
             
-            _uncertain_sample = kde_collection_uncertain[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-            _original_sample = kde_collection_original[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-
-
+            
             # if standardize is true and values x are x < 0 or x > 1, then set x respectively to 0 or 1
             if _standardize_data:
                 
@@ -911,9 +974,8 @@ if _SIMULATE == True:
 
 
             _uncertain_sample_collection.append(_uncertain_sample)
-            _original_sample_collection.append(_original_sample)
-        
-    
+            _original_sample_collection.append(_original_sample)  
+
         _uncertain_sample_collection = pd.DataFrame(_uncertain_sample_collection).transpose()
         _uncertain_sample_collection.columns = _uncertain_attributes
     
@@ -952,6 +1014,16 @@ if _SIMULATE == True:
         _X_simulation_uncertain = _DATAFRAME_MC_UNCERTAIN_KDE_SIMULATION.iloc[:, 0:-1]
         
         _X_simulation_original = _DATAFRAME_MC_ORIGINAL_KDE_SIMULATION.iloc[:, 0:-1]
+
+
+        # calculate Input RMSE for original and uncertain Monte Carlo Input
+        
+        #create an equivalent representation of a original row in monte carlo style of the original dataframe for comparison
+        _original_df_mc_row_input = pd.DataFrame(X_original.loc[_row]).copy().transpose()
+        _original_df_mc_row_input = pd.concat([_original_df_mc_row_input] * _SIMULATION_LENGTH, ignore_index=True)
+        
+        _uncertain_sim_input_rmse = mse(_original_df_mc_row_input, _X_simulation_uncertain, squared=False)
+        _original_sim_input_rmse = mse(_original_df_mc_row_input, _X_simulation_original, squared=False)
 
 
         """
@@ -1081,10 +1153,8 @@ if _SIMULATE == True:
                 _uncertain_kde_stats[_activation][_c] = {int(_uncertain_kde_density_peak_indices[_activation][_c][i]) : _uncertain_kde_density_peak_pdf[_activation][_c][i] for i in range(len(_uncertain_kde_density_peak_indices[_activation][_c]))}
         
                 # kde integral for percentages under the curve
-                #_uncertain_kde_lower_probability[_activation][c] = round(_uncertain_simulation_result_kde[_activation][c].integrate_box_1d(float("-inf"), 0.5), 8)
-                #_uncertain_kde_upper_probability[_activation][c] = round(_uncertain_simulation_result_kde[_activation][c].integrate_box_1d(0.5, float("inf")), 8)
-                _uncertain_kde_lower_probability[_activation][_c] = round(_uncertain_simulation_result_kde[_activation][_c].integrate_box_1d(0, 0.5), 8)
-                _uncertain_kde_upper_probability[_activation][_c] = round(_uncertain_simulation_result_kde[_activation][_c].integrate_box_1d(0.5, 1), 8)
+                _uncertain_kde_lower_probability[_activation][_c] = round(_uncertain_simulation_result_kde[_activation][_c].integrate_box_1d(float("-inf"), 0.5), 8)
+                _uncertain_kde_upper_probability[_activation][_c] = round(_uncertain_simulation_result_kde[_activation][_c].integrate_box_1d(0.5, float("inf")), 8)
                 _uncertain_kde_sum_prob[_activation][_c] = round(_uncertain_kde_lower_probability[_activation][_c] + _uncertain_kde_upper_probability[_activation][_c], 2)
                 
             
@@ -1222,10 +1292,8 @@ if _SIMULATE == True:
                 _original_kde_stats[_activation][_c] = {int(_original_kde_density_peak_indices[_activation][_c][i]) : _original_kde_density_peak_pdf[_activation][_c][i] for i in range(len(_original_kde_density_peak_indices[_activation][_c]))}
         
                 # kde integral for percentages under the curve
-                #__original_kde_lower_probability[_activation][c] = round(_original_simulation_result_kde[_activation][c].integrate_box_1d(float("-inf"), 0.5), 8)
-                #__original_kde_upper_probability[_activation][c] = round(_original_simulation_result_kde[_activation][c].integrate_box_1d(0.5, float("inf")), 8)
-                _original_kde_lower_probability[_activation][_c] = round(_original_simulation_result_kde[_activation][_c].integrate_box_1d(0, 0.5), 8)
-                _original_kde_upper_probability[_activation][_c] = round(_original_simulation_result_kde[_activation][_c].integrate_box_1d(0.5, 1), 8)
+                _original_kde_lower_probability[_activation][_c] = round(_original_simulation_result_kde[_activation][_c].integrate_box_1d(float("-inf"), 0.5), 8)
+                _original_kde_upper_probability[_activation][_c] = round(_original_simulation_result_kde[_activation][_c].integrate_box_1d(0.5, float("inf")), 8)
                 _original_kde_sum_prob[_activation][_c] = round(_original_kde_lower_probability[_activation][_c] + _original_kde_upper_probability[_activation][_c], 2)
                 
             
@@ -1234,36 +1302,56 @@ if _SIMULATE == True:
 
 
 
-        _fig, _axs = plt.subplots(_unique_outcomes, 1, figsize=(17, 11))
-
-
-        for plot, c in enumerate(_classes):
-            print(plot)
-            # visualize predictions with hist plots
-            sns.histplot(data={f"{c} Sig. Activations"  : pd.DataFrame(_y_simulation_uncertain_hat["sigmoid"]).iloc[:, plot]}, 
-                         bins=15, 
-                         binrange=(0, 1), 
-                         stat="count", 
-                         kde=False, 
-                         kde_kws={"cut":0},
-                         ax=_axs[plot]).set_title(label=f'Class: {plot} Sigmoid Activation. Plot - Miss-Rate: {_MISS_RATE} - Sim.-Length: {_SIMULATION_LENGTH}')
-        
-            #if _IMPUTE:
-            #    _axs[plot].axvline(x=y_impute_hat["sigmoid"][_row][plot], linewidth=4, linestyle = "--", color = "purple", label="Impute Prediction" + " (" + _IMPUTE_METHOD.capitalize() + ")") # impute prediction
-        
-        
-            #_axs[plot].axvline(x=y_original[_row], linewidth=8, linestyle = "-", color = "green", label="Original Label")
-            #_axs[plot].axvline(x=y_original_hat_labels_sig[_row], linewidth=4, alpha=1, linestyle = "--", color = "red", label="Predicted Model Label")
-        
-            #plt.axvline(x=_y_simulation_original_hat_mean, linewidth=2, linestyle = "-.", color = "black", label="Orig. Mean Sim. Value") # orig. simulation prediction mean
-            #plt.axvline(x=_y_simulation_uncertain_hat_mean, linewidth=2, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value") # uncert. simulation prediction mean
+        for _activation in ["sigmoid", "softmax"]:
             
-            # Max Density Vertical Lines
-            #_axs[plot].axvline(x=_uncertain_max_density, color="grey", linestyle = "-.", linewidth=4, label="Uncert. KDE Max Density") 
-            #_axs[plot].axvline(x=_original_max_density_sigmoid, color="black", linestyle = "-.", linewidth=4, label="Orig. KDE Max Density")
+            _fig, _axs = plt.subplots(_unique_outcomes, 1, figsize=(17, 11))
+            for _plot, _c in enumerate(_classes):
+    
+                # visualize predictions with hist plots
+                sns.histplot(data={f"{_c} {_activation.capitalize()}. Activations"  : pd.DataFrame(_y_simulation_uncertain_hat[_activation]).iloc[:, _plot]}, 
+                             bins=15, 
+                             binrange=(0, 1),
+                             alpha=0.3,
+                             stat="count", 
+                             kde=False, 
+                             kde_kws={"cut":0},
+                             ax=_axs[_plot]).set_title(label=f'Row: {_row} Class: {_plot} Uncertain {_activation.capitalize()} Activation. Plot - Miss-Rate: {_MISS_RATE} - Sim.-Length: {_SIMULATION_LENGTH}')
             
-            #_axs[plot].legend(["Original Label", "Predicted Model Label", "Impute Prediction" + " (" + _IMPUTE_METHOD.capitalize() + ")", "Orig. Mean Sim. Value", "Uncert. Mean Sim. Value", "Label 1", "Label 0"])
+                _axs[_plot].axvline(x=pd.DataFrame(y_original_hat[_activation]).iloc[_row, _plot], linewidth=4, alpha=1, linestyle = "--", color = "red", label="Model Class Prediction")
+            
+                _axs[_plot].axvline(x=pd.Series(_y_simulation_uncertain_hat_mean[_activation + "_mean"]).loc[_plot], linewidth=4, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value")
+                
+                _axs[_plot].axvline(x=_uncertain_max_density_activation[_activation + "_class"][_c], color="black", linestyle = "-.", linewidth=4, label="Uncert. KDE Max Density") 
 
+                _axs[_plot].axvline(x=pd.Series(y_original_categorical[_row]).loc[_plot], linewidth=8, linestyle = "-", color = "green", label="Original Class")
+            
+                _axs[_plot].legend(["Model Class Prediction", "Uncert. Sim. Mean Value", "Uncert. KDE Max Density", "Original Class Asign.", _activation.capitalize() + "Activations"])
+            plt.show()
+            
+            
+            
+            fig, _axs = plt.subplots(_unique_outcomes, 1, figsize=(17, 11))
+            for _plot, _c in enumerate(_classes):
+    
+                # visualize predictions with hist plots
+                sns.histplot(data={f"{_c} {_activation.capitalize()} Activations"  : pd.DataFrame(_y_simulation_original_hat[_activation]).iloc[:, _plot]}, 
+                             bins=15, 
+                             binrange=(0, 1),
+                             alpha=0.3,
+                             stat="count", 
+                             kde=False, 
+                             kde_kws={"cut":0},
+                             ax=_axs[_plot]).set_title(label=f'Row: {_row} Class: {_plot} Original {_activation.capitalize()} Activation. Plot - Miss-Rate: {_MISS_RATE} - Sim.-Length: {_SIMULATION_LENGTH}')
+            
+                _axs[_plot].axvline(x=pd.DataFrame(y_original_hat[_activation]).iloc[_row, _plot], linewidth=4, alpha=1, linestyle = "--", color = "red", label="Predicted Model Label")
+            
+                _axs[_plot].axvline(x=pd.Series(_y_simulation_uncertain_hat_mean[_activation + "_mean"]).loc[_plot], linewidth=4, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value")
+                
+                _axs[_plot].axvline(x=_original_max_density_activation[_activation + "_class"][_c], color="black", linestyle = "-.", linewidth=4, label="Original. KDE Max Density") 
+                
+                _axs[_plot].axvline(x=pd.Series(y_original_categorical[_row]).loc[_plot], linewidth=8, linestyle = "-", color = "green", label="Original Class")
+                _axs[_plot].legend(["Model Class Prediction", "Uncert. Sim. Mean Value", "Uncert. KDE Max Density", "Original Class Asign.", _activation.capitalize() + "Activations"])
+            plt.show()
 
 
 
@@ -1282,6 +1370,7 @@ if _SIMULATE == True:
                 "0.7_uncertain_attributes" : _uncertain_attributes,
                 },
             "1_Uncertain Simulation Collection" : {
+                "1.00_x_input_rmse" : _uncertain_sim_input_rmse,
                 "1.01_x_input_stats" : _X_simulation_uncertain.describe(),
                 "1.02_y_simulation_hat" : _y_simulation_uncertain_hat,
                 "1.03_y_simulation_hat_labels" : _y_simulation_uncertain_hat_labels,
@@ -1297,6 +1386,7 @@ if _SIMULATE == True:
                 "1.12_kde_combined_probability" : _uncertain_kde_sum_prob
                 },
             "2_Original Simulation Collection" : {
+                "0.00_x_input_rmse" : _original_sim_input_rmse,
                 "2.01_x_input_stats" : _X_simulation_original.describe(),
                 "2.02_y_simulation_hat" : _y_simulation_original_hat,
                 "2.03_y_simulation_hat_labels" : _y_simulation_original_hat_labels,
@@ -1321,12 +1411,12 @@ if _SIMULATE == True:
                                    "sigmoid_std_dist" : np.abs(_y_simulation_original_hat_std["sigmoid_std"] - _y_simulation_uncertain_hat_std["sigmoid_std"])},
                 "Sim_Max_Density_acivation_dist" : {"softmax_std_dist" : np.abs(np.array(list(_original_max_density_activation["softmax_class"].values())) - np.array(list(_uncertain_max_density_activation["softmax_class"].values()))),
                                                   "sigmoid_std_dist" : np.abs(np.array(list(_original_max_density_activation["sigmoid_class"].values())) - np.array(list(_uncertain_max_density_activation["sigmoid_class"].values())))},
-                #"KS-Test" : stats.ks_2samp(__original_kde_pdfs, __uncertain_kde_pdfs)
                 }
             })
 
 
         # simulation history appendix
+        SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.0_Input_RMSE"].append(_uncertain_sim_input_rmse)
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.1_Means"].append(_y_simulation_uncertain_hat_mean["softmax_mean"])
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.2_Mean_Labels"].append(_y_simulation_uncertain_hat_mean_label["softmax_mean_label"])       
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.4_Stds"].append(_y_simulation_uncertain_hat_std["softmax_std"])
@@ -1335,6 +1425,7 @@ if _SIMULATE == True:
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.8_Lower_Bound_Probability"].append(_uncertain_kde_lower_probability["softmax_class"])
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.9_Upper_Bound_Probability"].append(_uncertain_kde_upper_probability["softmax_class"])
         
+        SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.0_Input_RMSE"].append(_uncertain_sim_input_rmse)
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.1_Means"].append(_y_simulation_uncertain_hat_mean["sigmoid_mean"])
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.2_Mean_Labels"].append(_y_simulation_uncertain_hat_mean_label["sigmoid_mean_label"])       
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.4_Stds"].append(_y_simulation_uncertain_hat_std["sigmoid_std"])
@@ -1345,6 +1436,7 @@ if _SIMULATE == True:
         
         
         # simulation history appendix
+        SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.0_Input_RMSE"].append(_original_sim_input_rmse)
         SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.1_Means"].append(_y_simulation_original_hat_mean["softmax_mean"])
         SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.2_Mean_Labels"].append(_y_simulation_original_hat_mean_label["softmax_mean_label"])
         SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.4_Stds"].append(_y_simulation_original_hat_std["softmax_std"])
@@ -1353,6 +1445,7 @@ if _SIMULATE == True:
         SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.8_Lower_Bound_Probability"].append(_original_kde_lower_probability)
         SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.9_Upper_Bound_Probability"].append(_original_kde_upper_probability)
 
+        SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.0_Input_RMSE"].append(_original_sim_input_rmse)
         SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.1_Means"].append(_y_simulation_original_hat_mean["sigmoid_mean"])
         SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.2_Mean_Labels"].append(_y_simulation_original_hat_mean_label["sigmoid_mean_label"])
         SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.4_Stds"].append(_y_simulation_original_hat_std["sigmoid_std"])
@@ -1385,33 +1478,19 @@ if _SIMULATE == True:
     SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"] = {
         "Softmax" : {
             "3.1.1_Explanation" : "Analysing the differences between Uncertain and Original KDE Simulations",
-            "3.1.2_Sim_Mean_dist" : np.abs(np.array(SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.1_Means"]) - np.array(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.1_Means"])),
-            "3.1.3_Sim_Mean_dist_avg" : None,
-            "3.1.4_Sim_Stds_dist" : np.abs(np.array(SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.4_Stds"]) - np.array(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.4_Stds"])),
-            "3.1.5_Sim_Stds_dist_avg" : None,
-            "3.1.6_Sim_Max_Density_Sigmoid_dist" : np.abs(np.array(SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.5_Max_Density_Activation"]) - np.array(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.5_Max_Density_Activation"])),
-            "3.1.7_Sim_Max_Density_Sigmoid_dist_avg" : None
+            "3.1.2_Sim_Mean_dist" : mse(SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.1_Means"], SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.1_Means"], squared=False),
+            "3.1.4_Sim_Stds_dist" : mse(SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.4_Stds"], SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.4_Stds"], squared=False),
+            "3.1.6_Sim_Max_Density_Sigmoid_dist" : mse(SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.5_Max_Density_Activation"], SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.5_Max_Density_Activation"], squared=False),
             },
         "Sigmoid" : {
             "3.2.1_Explanation" : "Analysing the differences between Uncertain and Original KDE Simulations",
-            "3.2.2_Sim_Mean_dist" : np.abs(np.array(SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.1_Means"]) - np.array(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.1_Means"])),
-            "3.2.3_Sim_Mean_dist_avg" : None,
-            "3.2.4_Sim_Stds_dist" : np.abs(np.array(SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.4_Stds"]) - np.array(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.4_Stds"])),
-            "3.2.5_Sim_Stds_dist_avg" : None,
-            "3.2.6_Sim_Max_Density_Sigmoid_dist" : np.abs(np.array(SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.5_Max_Density_Activation"]) - np.array(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.5_Max_Density_Activation"])),
-            "3.2.7_Sim_Max_Density_Sigmoid_dist_avg" : None
+            "3.2.2_Sim_Mean_dist" : mse(SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.1_Means"], SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.1_Means"], squared=False),
+            "3.2.4_Sim_Stds_dist" : mse(SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.4_Stds"], SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.4_Stds"], squared=False),
+            "3.2.6_Sim_Max_Density_Sigmoid_dist" : mse(SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.5_Max_Density_Activation"], SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.5_Max_Density_Activation"], squared=False),
             }
         }
         
-    SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["Softmax"]["3.1.3_Sim_Mean_dist_avg"] = SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["Softmax"]["3.1.2_Sim_Mean_dist"].mean()
-    SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["Softmax"]["3.1.5_Sim_Stds_dist_avg"] = SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["Softmax"]["3.1.4_Sim_Stds_dist"].mean()
-    SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["Softmax"]["3.1.7_Sim_Max_Density_Sigmoid_dist_avg"] = SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["Softmax"]["3.1.6_Sim_Max_Density_Sigmoid_dist"].mean()
-    
-    
-    SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["Sigmoid"]["3.2.3_Sim_Mean_dist_avg"] = SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["Sigmoid"]["3.2.2_Sim_Mean_dist"].mean()
-    SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["Sigmoid"]["3.2.5_Sim_Stds_dist_avg"] = SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["Sigmoid"]["3.2.4_Sim_Stds_dist"].mean()
-    SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["Sigmoid"]["3.2.7_Sim_Max_Density_Sigmoid_dist_avg"] = SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"]["Sigmoid"]["3.2.6_Sim_Max_Density_Sigmoid_dist"].mean()
-    
+  
  
     print('\n\nSimulation execution time:', _elapsed_time)
 
@@ -1419,242 +1498,12 @@ if _SIMULATE == True:
 
 
 
-    """
-            --------------------------------> simulations process end <--------------------------------
-            --------------------------------> simulations process end <--------------------------------
-            --------------------------------> simulations process end <--------------------------------
-            --------------------------------> simulations process end <--------------------------------
-            --------------------------------> simulations process end <--------------------------------
-            --------------------------------> simulations process end <--------------------------------
-            --------------------------------> simulations process end <--------------------------------
-            --------------------------------> simulations process end <--------------------------------
-    """
 
 
 
 
-
-
-
-
-
-
-
-
-    '''
-    
-    
-    """
-        Plot_combined_output: KDE PLOT of Uncerlying uncertainty
-    """
-
-    # KDE Distributions
-    plt.plot(_x_axis, _uncertain_kde_pdfs, 
-             label="Uncertain KDE Distribution", 
-             color="grey", linestyle = "--")
-    
-    plt.plot(_x_axis, _original_kde_pdfs, 
-             label="Original KDE Distribution", 
-             color="black", linestyle = "--")
-    
-    #plot normal distribution with mean and std of simulated values
-    #plt.plot(_x_axis, stats.norm.pdf(_x_axis, _y_simulation_original_hat_mean, _y_simulation_original_hat_std), label="Orig. Sim. Distribution", color="black", linestyle = "-")
-    #plt.plot(_x_axis, stats.norm.pdf(_x_axis, _y_simulation_uncertain_hat_mean, _y_simulation_uncertain_hat_std), label="Uncert. Sim. Distribution", color="grey", linestyle = "--")
-
-    #plt.axvline(x=_y_simulation_uncertain_hat_mean, linewidth=1, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value") # mean uncertain kde prediction
-    #plt.axvline(x=_y_simulation_original_hat_mean, linewidth=1, linestyle = "-.", color = "black", label="Orig. Mean Sim. Value") # mean original kde prediction
-  
-
-    # Max Density Vertical Lines
-    plt.vlines(x=_uncertain_max_density_sigmoid, 
-               ymin = 0, ymax = max(_uncertain_kde_density_peak_pdf), 
-               color="grey", linestyle = "-.", linewidth=0.9, 
-               label="Uncert. KDE Max Density") 
-    
-    plt.vlines(x=_original_max_density_sigmoid, 
-               ymin = 0, ymax = max(_original_kde_density_peak_pdf), 
-               color="black", linestyle = "-.", linewidth=0.9, 
-               label="Orig. KDE Max Density")
-    
-    # Predicted and Original Label
-    plt.axvline(x=y_original[_row], 
-                linewidth=4, linestyle = "-", 
-                color = "green", label="Original Label")
-    
-    plt.axvline(x=y_original_hat_labels[_row], 
-                linewidth=2, alpha=1, linestyle = "--", 
-                color = "red", label="Predicted Model Label")
-    
-    # Impute Vertical Line
-    if _IMPUTE:
-        plt.axvline(x=y_impute_hat[_row], 
-                    linewidth=1, linestyle = "--", color = "purple", 
-                    label="Impute Prediction" + " (" + _IMPUTE_METHOD.capitalize() + ")")
-    
-    plt.title(f'Row: {_row} Underlying Uncertainty of the Simulation - Miss-Rate: {_MISS_RATE} - Sim.-Length: {_SIMULATION_LENGTH}')
-    plt.legend(bbox_to_anchor=(1.04, 0.5), loc="center left")
-    plt.xlabel('Sigmoid Activation')
-    plt.ylabel('Density')
-    plt.ylim([0, max(max(_uncertain_kde_pdfs), max(_original_kde_pdfs)) + 0.1])
-    plt.show()
-
-
-    '''
-
-
-
-
-
-
-
-    """
-    # single
-    sns.kdeplot(_y_simulation_original_hat["sigmoid"], 
-                bw_method=_PRED_BANDWIDTH)  
-    plt.title(f"Original Row - {_row} // Logit Plot")
-    plt.show()
-    
-    sns.kdeplot(_y_simulation_original_hat["softmax"], 
-                bw_method=_PRED_BANDWIDTH)  
-    plt.title(f"Original Row - {_row} // Prediction Softmax Plot")
-    plt.show()
-    """
-        
-        
-        
-        
-        
-        
-    
-    
-    
-    
-    
-    
-    
-    """
-    test = pd.DataFrame(_y_simulation_original_hat["sigmoid"], columns=["Label: " + str(i) for i in range(len(DATAFRAME_ORIGINAL.Outcome.unique()))])
-    
-    from sklearn.neighbors import KernelDensity
-    import matplotlib.gridspec as grid_spec
-    
-    gs = grid_spec.GridSpec(len(test.columns),1)
-    fig = plt.figure(figsize=(16,9))
-    
-    i = 0
-    
-    ax_objs = []
-    for label in test.columns:
-        
-        data = test[label].values
-        
-        x_d = _x_axis
-    
-        kde = stats.gaussian_kde(data).logpdf(x_d)
-    
-        # creating new axes object
-        ax_objs.append(fig.add_subplot(gs[i:i+1, 0:]))
-    
-        # plotting the distribution
-        ax_objs[-1].plot(x_d, kde, color="#f0f0f0",lw=1)
-        ax_objs[-1].fill_between(x_d, kde, alpha=1)
-    
-    
-        # setting uniform x and y lims
-        ax_objs[-1].set_xlim(0,1)
-        ax_objs[-1].set_ylim(0,2.5)
-    
-        # make background transparent
-        rect = ax_objs[-1].patch
-        rect.set_alpha(0)
-    
-        # remove borders, axis ticks, and labels
-        ax_objs[-1].set_yticklabels([])
-    
-        if i == len(test.columns)-1:
-            ax_objs[-1].set_xlabel("Test Score", fontsize=16,fontweight="bold")
-        else:
-            ax_objs[-1].set_xticklabels([])
-    
-        spines = ["top","right","left","bottom"]
-        for s in spines:
-            ax_objs[-1].spines[s].set_visible(False)
-    
-        #adj_country = country.replace(" ","\n")
-        #ax_objs[-1].text(-0.02,0,adj_country,fontweight="bold",fontsize=14,ha="right")
-    
-    
-        i += 1
-    
-    gs.update(hspace=-0.7)
-    
-    fig.text(0.07,0.85,"Distribution of Aptitude Test Results from 18 – 24 year-olds",fontsize=20)
-    
-    plt.tight_layout()
-    plt.show()
-    
-    
-    """
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    """
-    # combined
-    sns.kdeplot(_y_simulation_original_hat["sigmoid"].flatten(), 
-                bw_method=__PRED_BANDWIDTH)  
-    plt.title(f"Original Row - {_row} // Logit Plot")
-    plt.show()
-    
-    sns.kdeplot(_y_simulation_original_hat["softmax"].flatten(), 
-                bw_method=__PRED_BANDWIDTH)  
-    plt.title(f"Original Row - {_row} // Prediction Softmax Plot")
-    plt.show()
-    """
-        
-
-
-
-
-
-
-    
-
-    
-    """
-        Below: combined Comparisons between the prediction results of Uncertain and Certain KDE simulations
-    """
-    
-
-
-
-
-
-
-
-"""
-    ---> Comparison of everything - Creation of extended dataframe containing all results
-    
-    Explanation of DATAFRAME_COMBINED_RESULTS:
-        - Original Label is equal to the Label which is found originally in the dataset
-        - 0: is the shortcut for a prediction with a trained model on full data without uncertainties
-            -> only uncertainties found here are model uncertainties 
-        - 1: is the shortcut for predictions with imputed values
-        
-        - 2: simulation results - metric mean 
-        
-"""
-
-
-
-
+# TODO
+sys.exit()
 
  # TODO
 if _IMPUTE == True and _SIMULATE == True:
@@ -1662,64 +1511,122 @@ if _IMPUTE == True and _SIMULATE == True:
         _min_idx = min(_SIMULATION_RANGE)
         _max_idx = max(_SIMULATION_RANGE) + 1
 
-        '''
-        DATAFRAME_COMBINED_RESULTS = pd.DataFrame(data={"Original_Label" : y_original[_min_idx:_max_idx],
+
+        metric="sigmoid"
+
+        DATAFRAME_COMBINED_ROW_RESULTS = pd.DataFrame(data={"Original_Label" : y_original[_min_idx:_max_idx],
+                                                        "0_Prediction" : y_original_hat[metric][_min_idx:_max_idx],
+                                                        "0_Predicted_Label" : y_original_hat_label[metric][_min_idx:_max_idx],
                                                         
-                                                        "0_Prediction" : y_original_hat[_min_idx:_max_idx],
-                                                        "0_Predicted_Label" : y_original_hat_labels[_min_idx:_max_idx],
-                                                        #"0_Prediction_Result" : (y_original[_min_idx:_max_idx] == y_original_hat_labels[_min_idx:_max_idx]),
-                                                        
-                                                        "1_Imputation" : y_impute_hat[_min_idx:_max_idx],
-                                                        "1_Imputation_Label" : y_impute_hat_labels[_min_idx:_max_idx],
-                                                        #"1_Results_vs_Prediction_Label" : (y_original_hat_labels[_min_idx:_max_idx] == y_impute_hat_labels[_min_idx:_max_idx]),
+                                                        "1_Imputation-Mean" : DATAFRAME_IMPUTE_RESULTS_COLLECTION["MEAN_IMPUTE"][metric]["y_impute_hat"][_min_idx:_max_idx],
+                                                        "1_Imputation-Mean_Label" : DATAFRAME_IMPUTE_RESULTS_COLLECTION["MEAN_IMPUTE"][metric]["y_impute_hat_labels"][_min_idx:_max_idx],    
+                                                        "1_Imputation-Mode" : DATAFRAME_IMPUTE_RESULTS_COLLECTION["MODE_IMPUTE"][metric]["y_impute_hat"][_min_idx:_max_idx],
+                                                        "1_Imputation-Mode_Label" : DATAFRAME_IMPUTE_RESULTS_COLLECTION["MODE_IMPUTE"][metric]["y_impute_hat_labels"][_min_idx:_max_idx],
+                                                        "1_Imputation-Median" : DATAFRAME_IMPUTE_RESULTS_COLLECTION["MEDIAN_IMPUTE"][metric]["y_impute_hat"][_min_idx:_max_idx],
+                                                        "1_Imputation-Median_Label" : DATAFRAME_IMPUTE_RESULTS_COLLECTION["MEDIAN_IMPUTE"][metric]["y_impute_hat_labels"][_min_idx:_max_idx],
+                                                        "1_Imputation-KNNImp" : DATAFRAME_IMPUTE_RESULTS_COLLECTION["KNN_IMPUTE"][metric]["y_impute_hat"][_min_idx:_max_idx],
+                                                        "1_Imputation-KNNIMP_Label" : DATAFRAME_IMPUTE_RESULTS_COLLECTION["KNN_IMPUTE"][metric]["y_impute_hat_labels"][_min_idx:_max_idx],
                                                         
                                                         "2_Orig_Sim_Mean" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.1_Means"],
-                                                        "2_Orig_Sim_Label" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.2_Mean_Labels"],
-                                                        "2_Orig_Sim_Std" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.4_Stds"],
-                                                        "2_Orig_Sim_Max_Density" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.5_Max_Density_Activation"],
+                                                        "2_Orig_Sim_Mean_Label" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.2_Mean_Labels"],
+                                                        "2_Orig_Sim_Mean_Std" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.4_Stds"],
+                                                        "2_Orig_Sim_Max_Density" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.5_Max_Density_Sigmoid"],
                                                         "2_Orig_Sim_Max_Density_Label" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.6_Max_Density_Sig_Label"],
-                                                        
+                                                        "2_Orig_Lower_Bound_Probability" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.8_Lower_Bound_Probability"],
+                                                        "2_Orig_Upper_Bound_Probability" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.9_Upper_Bound_Probability"],
+                                                                         
                                                         "3_Uncert_Sim_Mean" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.1_Means"],
-                                                        "3_Uncert_Sim_Label" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.2_Mean_Labels"],
-                                                        "3_Uncert_Sim_Std" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.4_Stds"],
-                                                        "3_Uncert_Sim_Max_Density" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.5_Max_Density_Activation"],
+                                                        "3_Uncert_Sim_Mean_Label" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.2_Mean_Labels"],
+                                                        "3_Uncert_Sim_Mean_Std" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.4_Stds"],
+                                                        "3_Uncert_Sim_Max_Density" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.5_Max_Density_Sigmoid"],
                                                         "3_Uncert_Sim_Max_Density_Label" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.6_Max_Density_Sig_Label"],
+                                                        "3_Uncert_Lower_Bound_Probability" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.8_Lower_Bound_Probability"],
+                                                        "3_Uncert_Upper_Bound_Probability" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.9_Upper_Bound_Probability"]
                                                         }).transpose()
-                                                  
+
+
+        # calculate the distance to model prediction
+        _COMBINED_DISTANCES_PREDICTION = pd.Series(data={"1_Imp_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean"], squared=False),                                                      
+                                                        "1_Imp_Mode_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode"], squared=False),                 
+                                                        "1_Imp_Median_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median"], squared=False),
+                                                        "1_Imp_KNN_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNImp"], squared=False),
+                                                        "2_Orig_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean"], squared=False),
+                                                        "2_Orig_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density"], squared=False),
+                                                        "3_Uncert_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean"], squared=False),
+                                                        "3_Uncert_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Max_Density"], squared=False)
+                                                        }, name="to Prediction")
         
-        DATAFRAME_COMBINED_DISTANCES = pd.DataFrame(data={"0_Prediction" : DATAFRAME_COMBINED_RESULTS.loc["0_Prediction"],
-                                                          "1_Imputation_distance_to_Prediction" : np.abs(np.array(DATAFRAME_COMBINED_RESULTS.loc["0_Prediction"]) - np.array(DATAFRAME_COMBINED_RESULTS.loc["1_Imputation"])),
-                                                          "2_Orig_Sim_Mean_distance_to_Prediction" : np.abs(np.array(DATAFRAME_COMBINED_RESULTS.loc["0_Prediction"]) - np.array(DATAFRAME_COMBINED_RESULTS.loc["2_Orig_Sim_Mean"])),
-                                                          "2_Orig_Sim_Max_Density_distance_to_Prediction" : np.abs(np.array(DATAFRAME_COMBINED_RESULTS.loc["0_Prediction"]) - np.array(DATAFRAME_COMBINED_RESULTS.loc["2_Orig_Sim_Max_Density"])),
-                                                          "3_Uncert_Sim_Mean_distance_to_Prediction" : np.abs(np.array(DATAFRAME_COMBINED_RESULTS.loc["0_Prediction"]) - np.array(DATAFRAME_COMBINED_RESULTS.loc["3_Uncert_Sim_Mean"])),
-                                                          "3_Uncert_Sim_Max_Density_distance_to_Prediction" : np.abs(np.array(DATAFRAME_COMBINED_RESULTS.loc["0_Prediction"]) - np.array(DATAFRAME_COMBINED_RESULTS.loc["3_Uncert_Sim_Max_Density"])),
-                                                          }).transpose()
-                                                          
-                                                          
         
-        DATAFRAME_COMBINED_LABELS = pd.DataFrame(data={"Original_Label" : DATAFRAME_COMBINED_RESULTS.loc["Original_Label"],
-                                                       "0_Predicted_Label" : DATAFRAME_COMBINED_RESULTS.loc["0_Predicted_Label"],
-                                                       "0_Predicted_Label_Corr_Asign" : (DATAFRAME_COMBINED_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_RESULTS.loc["0_Predicted_Label"]),
+        # calculate the distance to predicted model label
+        _COMBINED_DISTANCES_PREDICTION_LABEL = pd.Series(data={"1_Imp_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean"], squared=False),                                                      
+                                                               "1_Imp_Mode_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode"], squared=False),                 
+                                                               "1_Imp_Median_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median"], squared=False),
+                                                               "1_Imp_KNN_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNImp"], squared=False),
+                                                               "2_Orig_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean"], squared=False),
+                                                               "2_Orig_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density"], squared=False),
+                                                               "3_Uncert_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean"], squared=False),
+                                                               "3_Uncert_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Max_Density"], squared=False)
+                                                               }, name="to Prediction Label")
+        
+        
+        # calculate the distance to predicted model label
+        _COMBINED_DISTANCES_ORIGINAL = pd.Series(data={"1_Imp_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean"], squared=False),                                                      
+                                                       "1_Imp_Mode_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode"], squared=False),                 
+                                                       "1_Imp_Median_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median"], squared=False),
+                                                       "1_Imp_KNN_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNImp"], squared=False),
+                                                       "2_Orig_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean"], squared=False),
+                                                       "2_Orig_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density"], squared=False),
+                                                       "3_Uncert_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean"], squared=False),
+                                                       "3_Uncert_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Max_Density"], squared=False)
+                                                       }, name="to Original Label")
+
+
+
+        COMBINED_DISTANCES_ANALYSIS = pd.DataFrame(data={_COMBINED_DISTANCES_ORIGINAL.name : _COMBINED_DISTANCES_ORIGINAL,
+                                                         _COMBINED_DISTANCES_PREDICTION_LABEL.name : _COMBINED_DISTANCES_PREDICTION_LABEL,
+                                                         _COMBINED_DISTANCES_PREDICTION.name : _COMBINED_DISTANCES_PREDICTION
+                                                         })  
+        min_distance = pd.Series(COMBINED_DISTANCES_ANALYSIS.idxmin(axis=0), name="4_Min Distance").to_frame().T
+        COMBINED_DISTANCES_ANALYSIS = pd.concat([COMBINED_DISTANCES_ANALYSIS, min_distance])
+        
+        
+        
+        DATAFRAME_COMBINED_LABELS = pd.DataFrame(data={"Original_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"],
                                                        
-                                                       "1_Imputation_Label" : DATAFRAME_COMBINED_RESULTS.loc["1_Imputation_Label"],
-                                                       "1_Imputation_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_RESULTS.loc["1_Imputation_Label"]),
-                                                       "1_Imputation_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_RESULTS.loc["1_Imputation_Label"]),
+                                                       "0_Predicted_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"],
+                                                       "0_Predicted_Label_Corr_Asign" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"]),
                                                        
-                                                       "2_Orig_Sim_Label" : DATAFRAME_COMBINED_RESULTS.loc["2_Orig_Sim_Label"],
-                                                       "2_Orig_Sim_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_RESULTS.loc["2_Orig_Sim_Label"]),
-                                                       "2_Orig_Sim_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_RESULTS.loc["2_Orig_Sim_Label"]),
+                                                       "1_Imp-Mean_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean_Label"],
+                                                       "1_Imp-Mean_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean_Label"]),
+                                                       "1_Imp-Mean_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean_Label"]),
                                                        
-                                                       "2_Orig_Sim_Max_Density_Label" : DATAFRAME_COMBINED_RESULTS.loc["2_Orig_Sim_Max_Density_Label"],
-                                                       "2_Orig_Sim_Max_Density_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_RESULTS.loc["2_Orig_Sim_Max_Density_Label"]),
-                                                       "2_Orig_Sim_Max_Density_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_RESULTS.loc["2_Orig_Sim_Max_Density_Label"]),
+                                                       "1_Imp-Mode_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode_Label"],
+                                                       "1_Imp-Mode_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode_Label"]),
+                                                       "1_Imp-Mode_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode_Label"]),
                                                        
-                                                       "3_Uncert_Sim_Label" : DATAFRAME_COMBINED_RESULTS.loc["3_Uncert_Sim_Label"],
-                                                       "3_Uncert_Sim_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_RESULTS.loc["3_Uncert_Sim_Label"]),
-                                                       "3_Uncert_Sim_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_RESULTS.loc["3_Uncert_Sim_Label"]),
+                                                       "1_Imp-Median_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median_Label"],
+                                                       "1_Imp-Median_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median_Label"]),
+                                                       "1_Imp-Median_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median_Label"]),
                                                        
-                                                       "3_Uncert_Sim_Max_Density_Label" : DATAFRAME_COMBINED_RESULTS.loc["3_Uncert_Sim_Max_Density_Label"],
-                                                       "3_Uncert_Sim_Max_Density_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_RESULTS.loc["3_Uncert_Sim_Max_Density_Label"]),
-                                                       "3_Uncert_Sim_Max_Density_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_RESULTS.loc["3_Uncert_Sim_Max_Density_Label"]),
+                                                       "1_Imp-KNNIMP_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean_Label"],
+                                                       "1_Imp-KNNIMP_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNIMP_Label"]),
+                                                       "1_Imp-KNNIMP_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNIMP_Label"]),
+                                                       
+                                                       "2_Orig_Sim_Mean_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean_Label"],
+                                                       "2_Orig_Sim_Mean_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean_Label"]),
+                                                       "2_Orig_Sim_Mean_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean_Label"]),
+                                                       
+                                                       "2_Orig_Sim_Max_Density_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density_Label"],
+                                                       "2_Orig_Sim_Max_Density_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density_Label"]),
+                                                       "2_Orig_Sim_Max_Density_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density_Label"]),
+                                                       
+                                                       "3_Uncert_Sim_Mean_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean_Label"],
+                                                       "3_Uncert_Sim_Mean_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean_Label"]),
+                                                       "3_Uncert_Sim_Mean_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean_Label"]),
+                                                       
+                                                       "3_Uncert_Sim_Max_Density_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Max_Density_Label"],
+                                                       "3_Uncert_Sim_Max_Density_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Max_Density_Label"]),
+                                                       "3_Uncert_Sim_Max_Density_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Max_Density_Label"]),
                                                        }).transpose()
         
         
@@ -1727,23 +1634,41 @@ if _IMPUTE == True and _SIMULATE == True:
     
         DATAFRAME_COMBINED_LABELS_ANALYSIS = pd.Series(data={"Correct Orig. labels assigned by 0_Predicted_Label": DATAFRAME_COMBINED_LABELS.loc["0_Predicted_Label_Corr_Asign"].value_counts(True)[0],
                                                              
-                                                             "Correct Orig. labels assigned by 1_Imputation_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imputation_Label_Corr_Asign_Original"].value_counts(True)[0],
-                                                             "Correct Pred. labels assigned by 1_Imputation_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imputation_Label_Corr_Asign_Predicted"].value_counts(True)[0],
+                                                             "Correct Orig. labels assigned by 1_Imp-Mean_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-Mean_Label_Corr_Asign_Original"].value_counts(True)[0],
+                                                             "Correct Pred. labels assigned by 1_Imp-Mean_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-Mean_Label_Corr_Asign_Predicted"].value_counts(True)[0],
                                                              
-                                                             "Correct Orig. labels assigned by 2_Orig_Sim_Label": DATAFRAME_COMBINED_LABELS.loc["2_Orig_Sim_Label_Corr_Asign_Original"].value_counts(True)[0],
-                                                             "Correct Pred. labels assigned by 2_Orig_Sim_Label": DATAFRAME_COMBINED_LABELS.loc["2_Orig_Sim_Label_Corr_Asign_Predicted"].value_counts(True)[0],
+                                                             "Correct Orig. labels assigned by 1_Imp-Mode_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-Mode_Label_Corr_Asign_Original"].value_counts(True)[0],
+                                                             "Correct Pred. labels assigned by 1_Imp-Mode_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-Mode_Label_Corr_Asign_Predicted"].value_counts(True)[0],
+                                                             
+                                                             "Correct Orig. labels assigned by 1_Imp-Median_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-Median_Label_Corr_Asign_Original"].value_counts(True)[0],
+                                                             "Correct Pred. labels assigned by 1_Imp-Median_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-Median_Label_Corr_Asign_Predicted"].value_counts(True)[0],
+                                                             
+                                                             "Correct Orig. labels assigned by 1_Imp-KNNIMP_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-KNNIMP_Label_Corr_Asign_Original"].value_counts(True)[0],
+                                                             "Correct Pred. labels assigned by 1_Imp-KNNIMP_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-KNNIMP_Label_Corr_Asign_Predicted"].value_counts(True)[0],                          
+                                                             
+                                                             "Correct Orig. labels assigned by 2_Orig_Sim_Mean_Label": DATAFRAME_COMBINED_LABELS.loc["2_Orig_Sim_Mean_Label_Corr_Asign_Original"].value_counts(True)[0],
+                                                             "Correct Pred. labels assigned by 2_Orig_Sim_Mean_Label": DATAFRAME_COMBINED_LABELS.loc["2_Orig_Sim_Mean_Label_Corr_Asign_Predicted"].value_counts(True)[0],
                                                              
                                                              "Correct Orig. labels assigned by 2_Orig_Sim_Max_Density_Label": DATAFRAME_COMBINED_LABELS.loc["2_Orig_Sim_Max_Density_Label_Corr_Asign_Original"].value_counts(True)[0],
                                                              "Correct Pred. labels assigned by 2_Orig_Sim_Max_Density_Label": DATAFRAME_COMBINED_LABELS.loc["2_Orig_Sim_Max_Density_Label_Corr_Asign_Predicted"].value_counts(True)[0],
                                                              
-                                                             "Correct Orig. labels assigned by 3_Uncert_Sim_Label": DATAFRAME_COMBINED_LABELS.loc["3_Uncert_Sim_Label_Corr_Asign_Original"].value_counts(True)[0],
-                                                             "Correct Pred. labels assigned by 3_Uncert_Sim_Label": DATAFRAME_COMBINED_LABELS.loc["3_Uncert_Sim_Label_Corr_Asign_Predicted"].value_counts(True)[0],
+                                                             "Correct Orig. labels assigned by 3_Uncert_Sim_Mean_Label": DATAFRAME_COMBINED_LABELS.loc["3_Uncert_Sim_Mean_Label_Corr_Asign_Original"].value_counts(True)[0],
+                                                             "Correct Pred. labels assigned by 3_Uncert_Sim_Mean_Label": DATAFRAME_COMBINED_LABELS.loc["3_Uncert_Sim_Mean_Label_Corr_Asign_Predicted"].value_counts(True)[0],
                                                              
                                                              "Correct Orig. labels assigned by 3_Uncert_Sim_Max_Density_Label": DATAFRAME_COMBINED_LABELS.loc["3_Uncert_Sim_Max_Density_Label_Corr_Asign_Original"].value_counts(True)[0],
                                                              "Correct Pred. labels assigned by 3_Uncert_Sim_Max_Density_Label": DATAFRAME_COMBINED_LABELS.loc["3_Uncert_Sim_Max_Density_Label_Corr_Asign_Predicted"].value_counts(True)[0],
                                                              })
-        '''
-
+        
+        
+        
+        # calculate the Input RMSE between the original DataFrame and the Uncertain DataFrames    
+        DATAFRAME_INPUT_ANALYSIS = pd.Series(data={"Mean_Impute_df" : _INPUT_RMSE_MEAN,
+                                                   "Mode_Impute_df" : _INPUT_RMSE_MODE,
+                                                   "Median_Impute_df" : _INPUT_RMSE_MEDIAN,
+                                                   "KNNImp_Impute_df" : _INPUT_RMSE_KNNIMP,
+                                                   "Uncertain_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.0_Input_RMSE"]),
+                                                   "Original_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.0_Input_RMSE"])
+                                                   }, name="RMSE")
 
 
 if _save_simulated_results:
@@ -1809,73 +1734,4 @@ if _load_simulated_results:
 
 
 
-
-
-
-
-
-# general comparison of distributions (original, impute, sim-uncert, sim-orig)
-"""         ### general comparison
-kde_collection_impute = []
-
-for _column in _column_names:
-    
-    # drop all missing values and get kde of remaining values inside a column
-    _column_values = DATAFRAME_IMPUTE[_column].values
-    
-    kde = stats.gaussian_kde(_column_values, bw_method=_INIT_DATA_BANDWIDTH)   
-    kde_collection_impute.append(kde)
-
-kde_collection_impute = {_column_names[i]: kde_collection_impute[i] for i in range(len(_column_names))}
-
-gen_original_sample = []
-gen_impute_sample = []
-gen_uncertain_sample = [] 
-
-for _key in _column_names[:-1]:
-    
-    _original_sample = kde_collection_original[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-    _impute_sample = kde_collection_impute[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-    _uncertain_sample = kde_collection_uncertain[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-
-
-    # if standardize is true and values x are x < 0 or x > 1, then set x respectively to 0 or 1
-    if _standardize_data:
-        
-        _uncertain_sample[(_uncertain_sample < 0)] = 0
-        _uncertain_sample[(_uncertain_sample > 1)] = 1
-        
-        _original_sample[(_original_sample < 0)] = 0
-        _original_sample[(_original_sample > 1)] = 1
-        
-        _impute_sample[(_impute_sample < 0)] = 0
-        _impute_sample[(_impute_sample > 1)] = 1
-
-
-    gen_original_sample.append(_uncertain_sample)
-    gen_uncertain_sample.append(_original_sample)
-    gen_impute_sample.append(_impute_sample)
-
-
-gen_original_sample = pd.DataFrame(gen_original_sample).transpose()
-gen_original_sample.columns = _column_names[:-1]
-
-gen_impute_sample = pd.DataFrame(gen_impute_sample).transpose()
-gen_impute_sample.columns = _column_names[:-1]
-
-gen_uncertain_sample = pd.DataFrame(gen_uncertain_sample).transpose()
-gen_uncertain_sample.columns = _column_names[:-1]
-
-
-
-gen_original_pred = model.predict(gen_original_sample).flatten()
-gen_impute_pred = model.predict(gen_impute_sample).flatten()
-gen_uncertain_pred = model.predict(gen_uncertain_sample).flatten()
-
-
-sns.kdeplot({"original":gen_original_pred,
-             "impute":gen_impute_pred,
-             "uncertain":gen_uncertain_pred},
-            fill=False)
-"""
 

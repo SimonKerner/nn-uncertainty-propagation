@@ -567,6 +567,7 @@ if _IMPUTE == False and _SIMULATE == False:
 # experiments modul 1 - with imputation --> full data --> get_predictions
 ##########################################################################################################################
 
+
 if _IMPUTE:
     
     print("\nPredictions for dataset with uncertainties and imputed values:")
@@ -771,7 +772,7 @@ if _SIMULATE == True:
         some necessary variables and for further computation or history collection
     """
     
-    def kde_latin_hypercube_sampler(kde_collection, sim_length):
+    def kde_latin_hypercube_sampler(kde_collection, sim_length, random_state):
         
         """
             # @https://github.com/scipy/scipy/blob/v1.3.3/scipy/stats/kde.py#L439
@@ -779,7 +780,7 @@ if _SIMULATE == True:
         """
         
         # sample in 1 dimension with specific simulation length
-        lhs_sampler = stats.qmc.LatinHypercube(1)
+        lhs_sampler = stats.qmc.LatinHypercube(1, seed=random_state)
         lhs_sample = lhs_sampler.random(n=sim_length)
         
         # get the underlying dataset of kde_collection
@@ -833,7 +834,7 @@ if _SIMULATE == True:
     if _SIMULATION_LENGTH < 10000:
         _x_axis = np.arange(0.0, 1.0, 0.000005)
     elif _SIMULATION_LENGTH <= 50000:
-        x_axis = np.arange(0.0, 1.0, 0.0005)
+        _x_axis = np.arange(0.0, 1.0, 0.0005)
     else:
         _x_axis = np.arange(0.0, 1.0, 0.001)
     
@@ -930,8 +931,8 @@ if _SIMULATE == True:
         
             if _latin_hypercube:
                 
-                _uncertain_sample = kde_latin_hypercube_sampler(kde_collection_uncertain[_key], _SIMULATION_LENGTH).flatten()
-                _original_sample = kde_latin_hypercube_sampler(kde_collection_original[_key], _SIMULATION_LENGTH).flatten()
+                _uncertain_sample = kde_latin_hypercube_sampler(kde_collection_uncertain[_key], _SIMULATION_LENGTH, _RANDOM_STATE).flatten()
+                _original_sample = kde_latin_hypercube_sampler(kde_collection_original[_key], _SIMULATION_LENGTH, _RANDOM_STATE).flatten()
             
             
             # if standardize is true and values x are x < 0 or x > 1, then set x respectively to 0 or 1
@@ -1045,7 +1046,7 @@ if _SIMULATE == True:
             #step 5.1.b: row-wise predictions on original samples
             -----> Simulation procedure for true original kde induced simulation frames
         """
-        print("start original pred")
+
         # predictions and labels
         _y_simulation_original_hat = model.predict(_X_simulation_original, verbose=0).flatten()
         _y_simulation_original_hat_labels = (_y_simulation_original_hat>0.5).astype("int32")
@@ -1083,20 +1084,6 @@ if _SIMULATE == True:
         
         _original_max_density_sigmoid = max(_original_kde_stats, key=_original_kde_stats.get) / len(_x_axis)
         _original_max_density_label = int(_original_max_density_sigmoid>0.5)
-
-
-        """
-        test = sns.kdeplot(data={"uncert":_y_simulation_uncertain_hat,
-                          "orig":_y_simulation_original_hat}, cumulative=True, bw_method=_PRED_BANDWIDTH)
-        """
-        """
-        original_cdf = np.cumsum(_original_kde_pdfs / sum(_original_kde_pdfs))
-        uncertain_cdf = np.cumsum(_uncertain_kde_pdfs / sum(_uncertain_kde_pdfs))
-        
-        plt.plot(_x_axis, original_cdf, label="original", color="orange")
-        plt.plot(_x_axis, uncertain_cdf, label="uncertain", color="blue")
-        """
-
 
 
         """
@@ -1393,28 +1380,6 @@ if _SIMULATE == True:
 
 
 
-
-
-
-
-"""
-    ---> Comparison of everything - Creation of extended dataframe containing all results
-    
-    Explanation of DATAFRAME_COMBINED_ROW_RESULTS:
-        - Original Label is equal to the Label which is found originally in the dataset
-        - 0: is the shortcut for a prediction with a trained model on full data without uncertainties
-            -> only uncertainties found here are model uncertainties 
-        - 1: is the shortcut for predictions with imputed values
-        
-        - 2: simulation results - metric mean 
-        
-"""
-
-
-
-
-
-
  # TODO
 if _IMPUTE == True and _SIMULATE == True:
         
@@ -1451,7 +1416,6 @@ if _IMPUTE == True and _SIMULATE == True:
                                                         "3_Uncert_Lower_Bound_Probability" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.8_Lower_Bound_Probability"],
                                                         "3_Uncert_Upper_Bound_Probability" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.9_Upper_Bound_Probability"]
                                                         }).transpose()
-
 
 
         # calculate the distance to model prediction
@@ -1491,14 +1455,13 @@ if _IMPUTE == True and _SIMULATE == True:
 
 
 
-
-    
         COMBINED_DISTANCES_ANALYSIS = pd.DataFrame(data={_COMBINED_DISTANCES_ORIGINAL.name : _COMBINED_DISTANCES_ORIGINAL,
                                                          _COMBINED_DISTANCES_PREDICTION_LABEL.name : _COMBINED_DISTANCES_PREDICTION_LABEL,
                                                          _COMBINED_DISTANCES_PREDICTION.name : _COMBINED_DISTANCES_PREDICTION
                                                          })  
         min_distance = pd.Series(COMBINED_DISTANCES_ANALYSIS.idxmin(axis=0), name="4_Min Distance").to_frame().T
         COMBINED_DISTANCES_ANALYSIS = pd.concat([COMBINED_DISTANCES_ANALYSIS, min_distance])
+        
         
         
         DATAFRAME_COMBINED_LABELS = pd.DataFrame(data={"Original_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"],
@@ -1581,9 +1544,6 @@ if _IMPUTE == True and _SIMULATE == True:
 
 
 
-stats.iqr(_y_simulation_original_hat)
-
-
 if _save_simulated_results:
     
     # save results and collections to folder
@@ -1633,97 +1593,4 @@ if _load_simulated_results:
         print(f"No file with ID '{_load_results_id}' was found!")
 
 
-
-
-
-# general comparison of distributions (original, impute, sim-uncert, sim-orig)
-"""         ### general comparison
-kde_collection_impute = []
-
-for _column in _column_names:
-    
-    # drop all missing values and get kde of remaining values inside a column
-    _column_values = DATAFRAME_IMPUTE[_column].values
-    
-    kde = stats.gaussian_kde(_column_values, bw_method=_INIT_DATA_BANDWIDTH)   
-    kde_collection_impute.append(kde)
-
-kde_collection_impute = {_column_names[i]: kde_collection_impute[i] for i in range(len(_column_names))}
-
-gen_original_sample = []
-gen_impute_sample = []
-gen_uncertain_sample = [] 
-
-for _key in _column_names[:-1]:
-    
-    _original_sample = kde_collection_original[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-    _impute_sample = kde_collection_impute[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-    _uncertain_sample = kde_collection_uncertain[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-
-
-    # if standardize is true and values x are x < 0 or x > 1, then set x respectively to 0 or 1
-    if _standardize_data:
-        
-        _uncertain_sample[(_uncertain_sample < 0)] = 0
-        _uncertain_sample[(_uncertain_sample > 1)] = 1
-        
-        _original_sample[(_original_sample < 0)] = 0
-        _original_sample[(_original_sample > 1)] = 1
-        
-        _impute_sample[(_impute_sample < 0)] = 0
-        _impute_sample[(_impute_sample > 1)] = 1
-
-
-    gen_original_sample.append(_uncertain_sample)
-    gen_uncertain_sample.append(_original_sample)
-    gen_impute_sample.append(_impute_sample)
-
-
-gen_original_sample = pd.DataFrame(gen_original_sample).transpose()
-gen_original_sample.columns = _column_names[:-1]
-
-gen_impute_sample = pd.DataFrame(gen_impute_sample).transpose()
-gen_impute_sample.columns = _column_names[:-1]
-
-gen_uncertain_sample = pd.DataFrame(gen_uncertain_sample).transpose()
-gen_uncertain_sample.columns = _column_names[:-1]
-
-
-
-gen_original_pred = model.predict(gen_original_sample).flatten()
-gen_impute_pred = model.predict(gen_impute_sample).flatten()
-gen_uncertain_pred = model.predict(gen_uncertain_sample).flatten()
-
-
-sns.kdeplot({"original":gen_original_pred,
-             "impute":gen_impute_pred,
-             "uncertain":gen_uncertain_pred},
-            fill=False)
-"""
-
-
-# ade evaluationen
-
-
-# 3. Prediction with neural networks:
-    # 3.1 Certain Uncertainty predictions with neural networks (point predictions)
-        # predictions with neural networks - consequenzes of these predictions -> transition to 3.2
-        # 3.1.1 binary
-        # 3.1.2 softmax multi-variate predictions
-    # 3.2 Uncertain Predictions, deterministic solution (standard approach)
-        # showcasing predictions with neural neutworks and introduced data uncertainty
-    # 3.3 Uncertain Predictions, stochastic solution (simulationn procedure)
-
-# 4. Showcase of results und discussion of above three
-    # binary results == 2
-    
-    # multivariate results unique_outputs >= 3
-
-# Summary and discussion
-
-# Limitations and model uncertainty predictions (bayes &&&)
-
-
-
-#test = SIMULATION_ROW_RESULTS[0]["1_Uncertain Simulation Collection"]["1.3_y_simulation_hat"]
 
