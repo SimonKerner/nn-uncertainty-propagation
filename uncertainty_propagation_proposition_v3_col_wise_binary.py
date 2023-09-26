@@ -35,11 +35,15 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.impute import SimpleImputer
 from sklearn.impute import KNNImputer
 
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
 
+import statsmodels.api as sm
 
 import scipy
 import scipy.stats as stats
-
+from scipy import interpolate
+from scipy.special import ndtr
 
 
 ##########################################################################################################################
@@ -70,7 +74,7 @@ following all the different settings for this simulation run can be found
 ##########################################################################################################################
 
 #choose working dataset: "australian" or "climate_simulation", "wdbc" -> Breast Cancer Wisconsin (Diagnostic)
-_dataset = "wdbc"
+_dataset = "australian"
 
 
 # set random state          
@@ -87,14 +91,14 @@ _standardize_data = True
 
 
 # settings for visualization
-_visiualize_data = True
+_visiualize_data = False
 _visualize_original_predictions = True
 _visualize_imputed_predictions = True
 
 
 # train or load model
 _train_model = False
-_save_new_model = True
+_save_new_model = False
 _load_model = True
 
 
@@ -110,7 +114,7 @@ _load_dataframe_miss = True
 _create_dataframe_miss = True
 
 _DELETE_MODE = "static"     # static (amount of values in row deleted) // percentage (value between 0 and 1)
-_MISS_RATE = 10
+_MISS_RATE = 15
 
 
 #KDE_VALUES OF EACH COLUMN - affected frames are DATAFRAME_SIMULATE -> Uncertain and DATAFRAME -> Certain/True
@@ -126,9 +130,10 @@ _IMPUTE = True
 _SIMULATE = True
 _monte_carlo = False
 _latin_hypercube = True
-_SIMULATION_LENGTH = 10000
+_LHS_MODE = "fast"
+_SIMULATION_LENGTH = 100000
 #_SIMULATION_RANGE = None
-_SIMULATION_RANGE = range(0, 10, 1)
+_SIMULATION_RANGE = range(0, 1, 1)
 _simulation_visualizations = True
 _norm= True
 _save_simulated_results = False
@@ -157,6 +162,11 @@ if _dataset == "wdbc":
     # change string outcome values to type int
     DATAFRAME_ORIGINAL.iloc[:,-1].replace(['B', 'M'], [0, 1], inplace=True)
  
+    # TODO
+    _datatypes=["Categorical", "Continuous", "Continuous", "Categorical", "Categorical", "Categorical", "Continuous", 
+                "Categorical", "Categorical", "Continuous", "Categorical", "Categorical", "Continuous", "Continuous",
+                "Categorical"]
+ 
     
 elif _dataset == "climate_simulation":
     
@@ -166,21 +176,20 @@ elif _dataset == "climate_simulation":
     # drop the first two elements of the dataset -> not relevant
     DATAFRAME_ORIGINAL = DATAFRAME_ORIGINAL.iloc[:, 2:]
     
+    # TODO
+    _datatypes=["Categorical", "Continuous", "Continuous", "Categorical", "Categorical", "Categorical", "Continuous", 
+                "Categorical", "Categorical", "Continuous", "Categorical", "Categorical", "Continuous", "Continuous",
+                "Categorical"]
+
 
 elif _dataset == "australian":
     
     with open(os.path.join(_dataset_path, _dataset + ".dat"), 'rb') as DATAFRAME_ORIGINAL:
         DATAFRAME_ORIGINAL = pd.read_table(DATAFRAME_ORIGINAL, sep=" ", engine="python", header=None)    
     
-
-elif _dataset == "predict+students+dropout+and+academic+success":
-    
-    with open(os.path.join(_dataset_path, _dataset + ".csv"), 'rb') as DATAFRAME_ORIGINAL:
-        DATAFRAME_ORIGINAL = pd.read_csv(DATAFRAME_ORIGINAL, sep=";", engine="python")
-
-    # change target names to numerical value
-    DATAFRAME_ORIGINAL.iloc[:,-1].replace(['Dropout', 'Enrolled', "Graduate"], [0, 1, 2], inplace=True)
-
+    _datatypes=["Categorical", "Continuous", "Continuous", "Categorical", "Categorical", "Categorical", "Continuous", 
+                "Categorical", "Categorical", "Continuous", "Categorical", "Categorical", "Continuous", "Continuous",
+                "Categorical"]
 
 else:
     print("No valid dataset found!")
@@ -196,6 +205,12 @@ _column_names = ["Attribute: " + str(i) for i in range(len(DATAFRAME_ORIGINAL.co
 _column_names[-1] = "Outcome"
 DATAFRAME_ORIGINAL.columns = _column_names    
     
+  
+"""
+    Create a datatype mapping
+"""
+
+datatyp_map = {DATAFRAME_ORIGINAL.columns[_i] : _datatypes[_i] for _i in range(len(DATAFRAME_ORIGINAL.columns))}
     
 """
     variable unique_outcomes decides which kind of simulation has to be choosen,
@@ -204,7 +219,9 @@ DATAFRAME_ORIGINAL.columns = _column_names
     
 _unique_outcomes = len(DATAFRAME_ORIGINAL.Outcome.unique())
 
- 
+
+
+
 
 ##########################################################################################################################
 """
@@ -288,6 +305,7 @@ _X_original_train, _X_original_test, _y_original_train,  _y_original_test = trai
 
 if _train_model:
     
+    _inputs = keras.Input(shape=(X_original.shape[1]))
     
     if _dataset == "wdbc":
         # layers of the network
@@ -295,7 +313,6 @@ if _train_model:
         _batch_size = 15
         _epochs = 50
         
-        _inputs = keras.Input(shape=(X_original.shape[1]))
         #_x = layers.Dense(32, activation='relu')(_inputs)
         _x = layers.Dense(16, activation='relu')(_inputs)  
         #_x = layers.Dense(16, activation='relu')(_x)
@@ -307,18 +324,22 @@ if _train_model:
         _batch_size = 10
         _epochs = 100
         
-        _inputs = keras.Input(shape=(X_original.shape[1]))
         _x = layers.Dense(9, activation='relu')(_inputs)
         _x = layers.Dense(5, activation='relu')(_x)  
         #_x = layers.Dense(8, activation='relu')(_x)
-
-
-    
         
-    """
-        --> Binary Model 
-    """
-    
+        
+    elif _dataset == "australian":
+        # layers of the network
+        
+        _batch_size = 15
+        _epochs = 50
+        
+        _x = layers.Dense(30, activation='relu')(_inputs)
+        _x = layers.Dense(10, activation='relu')(_x)  
+        #_x = layers.Dense(8, activation='relu')(_x)
+
+
     _outputs = layers.Dense(1, activation="sigmoid")(_x)              
     # build model
     model = keras.Model(inputs=_inputs, outputs=_outputs)
@@ -340,13 +361,12 @@ if _train_model:
         # save new model
         model.save(os.path.join(_model_path, _dataset + "_binary_model.keras"))
         
-    
-    
+
     # plot model
     utils.plot_history(model_history, model_type="binary")
     
     
-    
+  
 
 ##########################################################################################################################
 # load model without training
@@ -413,7 +433,7 @@ if _get_original_prediction_metrics:
     utils.create_metrics(y_original, y_original_hat_labels)
     plt.show()
 
-
+sys.exit() 
 
 ##########################################################################################################################
 # introduce missing data - aka. aleatoric uncertainty
@@ -535,20 +555,23 @@ if _IMPUTE:
     _DATAFRAME_KNN_IMPUTE = pd.DataFrame(_knn_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1])
     _DATAFRAME_KNN_IMPUTE = _DATAFRAME_KNN_IMPUTE.merge(DATAFRAME_ORIGINAL["Outcome"], left_index=True, right_index=True)
     
-    
     _INPUT_RMSE_KNNIMP = mse(DATAFRAME_ORIGINAL, _DATAFRAME_KNN_IMPUTE, squared=False)
 
     
+    # multiple imputation technique --> MICE Algo.
+    _iter_imp = IterativeImputer(max_iter=10, random_state=_RANDOM_STATE)
+    _DATAFRAME_ITER_IMPUTE = pd.DataFrame(_iter_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1])
+    _DATAFRAME_ITER_IMPUTE = _DATAFRAME_ITER_IMPUTE.merge(DATAFRAME_ORIGINAL["Outcome"], left_index=True, right_index=True)
+
+    _INPUT_RMSE_ITERIMP = mse(DATAFRAME_ORIGINAL, _DATAFRAME_ITER_IMPUTE, squared=False)
+
+
+
     DATAFRAME_IMPUTE_COLLECTION = {"MEAN_IMPUTE" : _DATAFRAME_MEAN_IMPUTE,
                                "MEDIAN_IMPUTE" : _DATAFRAME_MEDIAN_IMPUTE,
                                "MODE_IMPUTE" : _DATAFRAME_MODE_IMPUTE,
-                               "KNN_IMPUTE" : _DATAFRAME_KNN_IMPUTE}
-    
-    
-    DATAFRAME_IMPUTE_STATS = {"MEAN_IMPUTE" : _DATAFRAME_MEAN_IMPUTE.describe(),
-                              "MEDIAN_IMPUTE" : _DATAFRAME_MEDIAN_IMPUTE.describe(),
-                              "MODE_IMPUTE" : _DATAFRAME_MODE_IMPUTE.describe(),
-                              "KNN_IMPUTE" : _DATAFRAME_KNN_IMPUTE.describe()}
+                               "KNN_IMPUTE" : _DATAFRAME_KNN_IMPUTE,
+                               "ITER_IMPUTE" : _DATAFRAME_ITER_IMPUTE}
     
     
 if _SIMULATE:
@@ -772,38 +795,123 @@ if _SIMULATE == True:
         some necessary variables and for further computation or history collection
     """
     
-    def kde_latin_hypercube_sampler(kde_collection, sim_length, random_state):
+    def kde_latin_hypercube_sampler(kde_collection, sim_length, random_state, mode="fast", visualize_lhs_samples=False, attribute_key=""):
         
-        """
-            # @https://github.com/scipy/scipy/blob/v1.3.3/scipy/stats/kde.py#L439
-            # function has been rewritten to hande latin hypercube sampling
-        """
+        ###
+            ### FUNCTION PART 1 --> KDE METRICS
+        ###
         
-        # sample in 1 dimension with specific simulation length
+        if mode =="accurate":
+            
+            # get statsmodels kde of underlying scipy gaussian kde dataset
+            kde_fit = sm.nonparametric.KDEUnivariate(kde_collection.dataset.flatten())
+            kde_fit.fit()
+            
+            support = kde_fit.support
+            cdf = kde_fit.cdf
+        
+        
+        if mode=="fast":
+            
+            # @https://stackoverflow.com/a/47419857
+            stdev = np.sqrt(kde_collection.covariance)[0, 0]
+            support = np.linspace(0, 1, kde_collection_uncertain[_key].n)
+            cdf = ndtr(np.subtract.outer(support, kde_collection.dataset.flatten())/stdev).mean(axis=1)
+            
+
+        
+        # preprocessing of cdf values --> drop duplicates in cdf and support,
+        # if not, there could be problems with interpolation
+        preproc = pd.DataFrame(data={"cdf" : cdf,  
+                                     "support" : support})  
+        
+        preproc = preproc.copy().drop_duplicates(subset='cdf')
+        
+        # calculate inverse of cdf to obtain inverse cdf
+        # inversefunction can be used to sample values with the latin hypercube
+        inversefunction = interpolate.interp1d(preproc["cdf"], preproc["support"], kind='cubic', bounds_error=False)
+        
+        ###
+            ### FUNCTION PART 2 --> LATIN HYPERCUBE METRICS
+        ###
+        
+        # sample in 1-dimension with specific simulation length
         lhs_sampler = stats.qmc.LatinHypercube(1, seed=random_state)
-        lhs_sample = lhs_sampler.random(n=sim_length)
-        
-        # get the underlying dataset of kde_collection
-        kde_dataset = kde_collection.dataset.flatten()
+        lhs_sample = lhs_sampler.random(n=sim_length) 
+
+        # scale the created lhs samples to min and max cdf values
+        lhs_sample_scaled = stats.qmc.scale(lhs_sample, min(preproc["cdf"]), max(preproc["cdf"])).flatten()
+
+        ###
+            ### FUNCTION PART 3 --> CALCULATE LHS SAMPLES
+        ###
+
+        generate_samples = inversefunction(lhs_sample_scaled)
+
+        if visualize_lhs_samples:
+            sns.histplot(generate_samples)
+            plt.title(f"LH-Sample: {attribute_key} - Sample Size: {sim_length}")
+            plt.show()
+            
+        return generate_samples
     
-        # scale the created lhs samples // mul with 100 for index
-        _sample_scaled = stats.qmc.scale(lhs_sample, min(kde_dataset), max(kde_dataset)).flatten()
-        #_uncertain_sample_scaled.sort()
-        #uncertain_kde = kde_collection_uncertain[_key](_uncertain_sample_scaled)
-        #plt.plot(np.linspace(0, 1, _SIMULATION_LENGTH), uncertain_kde)
     
-        norm = np.transpose(np.random.multivariate_normal(np.zeros((kde_collection.d,), float),
-                                             kde_collection.covariance, size=_SIMULATION_LENGTH))
+    
+    
+    def categorical_latin_hypercube_sampler(dataframe, key, sim_length, random_state):
         
-        # original function index picker
-        #indices = random.choice(kde_collection_uncertain[_key].n, size=10, p=kde_collection_uncertain[_key].weights)
+        dataframe = DATAFRAME_ORIGINAL 
+        key = "Attribute: 4"
+        sim_length=_SIMULATION_LENGTH
+        random_state = _RANDOM_STATE
         
-        # new index picker with lhs functionality
-        indices = np.array(_sample_scaled * 100, dtype="int32")
+        # get frame column wit categorical data 
+        column = dataframe.loc[:,key]
         
-        means = kde_collection.dataset[:, indices]
+        # get unique values and normalize to probabilities // nan values get deleted
+        unique = column.value_counts(normalize=True).sort_index()
+
+        categories = np.array(list(unique.index))
+        probabilities = unique.values
         
-        return means + norm
+        cum_probs = np.cumsum(probabilities)
+        
+
+
+
+        # sample in 1-dimension with specific simulation length
+        lhs_sampler = stats.qmc.LatinHypercube(1, seed=random_state)
+        lhs_sample = lhs_sampler.random(n=sim_length) 
+
+        # scale the created lhs samples to min and max cdf values
+        lhs_sample_scaled = stats.qmc.scale(lhs_sample, min(cum_probs), max(cum_probs)).flatten()
+
+
+        hist = np.histogram(lhs_sample_scaled, cum_probs)
+        sns.histplot(hist[0], bins=len(categories))
+
+            
+        return None#generate_samples
+    
+    
+    
+    
+    
+    def categorical_distribution_sample(dataframe, key, sim_length):
+        
+        # get frame column wit categorical data 
+        column = dataframe.loc[:,key]
+        
+        # get unique values and normalize to probabilities // nan values get deleted
+        unique = column.value_counts(normalize=True).sort_index()
+
+        categories = np.array(list(unique.index))
+        probabilities = unique.values
+        
+        draw_sample = np.random.choice(categories, sim_length, p=probabilities)
+        
+        return draw_sample
+    
     
     
     
@@ -922,38 +1030,75 @@ if _SIMULATE == True:
         # sample from uncertain and original kde for input imputation
         for _key in _uncertain_attributes:
 
-            if _monte_carlo:
+            
+            # sample from categorical distribution
+            if datatyp_map[_key] == "Categorical":
+
+                # random samples from with respective probabilities
+                _uncertain_categ_sample = categorical_distribution_sample(DATAFRAME_MISS, _key)
+                _original_categ_sample = categorical_distribution_sample(DATAFRAME_ORIGINAL, _key) 
+
                 
-                # resample randomly a new dataset of the underlying kde
-                uncertain_sample = kde_collection_uncertain[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-                original_sample = kde_collection_original[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-    
+                # append draws to collection
+                _uncertain_sample_collection.append(_uncertain_categ_sample)
+                _original_sample_collection.append(_original_categ_sample)
+
+            
+
+            # sample from categorical distribution // KDE Distributions
+            elif datatyp_map[_key] == "Continous":
+                
+                
+                if _monte_carlo:
+                    
+                    # resample randomly a new dataset of the underlying kde
+                    _uncertain_sample = kde_collection_uncertain[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
+                    _original_sample = kde_collection_original[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
         
-            if _latin_hypercube:
-                
-                _uncertain_sample = kde_latin_hypercube_sampler(kde_collection_uncertain[_key], _SIMULATION_LENGTH, _RANDOM_STATE).flatten()
-                _original_sample = kde_latin_hypercube_sampler(kde_collection_original[_key], _SIMULATION_LENGTH, _RANDOM_STATE).flatten()
             
-            
-            # if standardize is true and values x are x < 0 or x > 1, then set x respectively to 0 or 1
-            if _standardize_data:
+                if _latin_hypercube:
+                    
+                    # 1 dimensional latin hypercube sampling
+                    _uncertain_sample = kde_latin_hypercube_sampler(kde_collection_uncertain[_key], 
+                                                                    _SIMULATION_LENGTH, 
+                                                                    _RANDOM_STATE, 
+                                                                    mode=_LHS_MODE, 
+                                                                    visualize_lhs_samples= False,
+                                                                    attribute_key=_key + "//Uncertain").flatten()
+                    
+                    _original_sample = kde_latin_hypercube_sampler(kde_collection_original[_key], 
+                                                                   _SIMULATION_LENGTH, 
+                                                                   _RANDOM_STATE, 
+                                                                   mode=_LHS_MODE, 
+                                                                   visualize_lhs_samples= False,
+                                                                   attribute_key=_key + "//Original").flatten()
                 
-                _uncertain_sample[(_uncertain_sample < 0)] = 0
-                _uncertain_sample[(_uncertain_sample > 1)] = 1
                 
-                _original_sample[(_original_sample < 0)] = 0
-                _original_sample[(_original_sample > 1)] = 1
+                # if standardize is true and values x are x < 0 or x > 1, then set x respectively to 0 or 1
+                if _standardize_data:
+                    
+                    _uncertain_sample[(_uncertain_sample < 0)] = 0
+                    _uncertain_sample[(_uncertain_sample > 1)] = 1
+                    
+                    _original_sample[(_original_sample < 0)] = 0
+                    _original_sample[(_original_sample > 1)] = 1
 
 
-            _uncertain_sample_collection.append(_uncertain_sample)
-            _original_sample_collection.append(_original_sample)  
+                _uncertain_sample_collection.append(_uncertain_sample)
+                _original_sample_collection.append(_original_sample)
+            
+            else: 
+                print("Error in datatype_map")
+                sys.exit()
+
+
 
         _uncertain_sample_collection = pd.DataFrame(_uncertain_sample_collection).transpose()
         _uncertain_sample_collection.columns = _uncertain_attributes
-    
+
         _original_sample_collection = pd.DataFrame(_original_sample_collection).transpose()
         _original_sample_collection.columns = _uncertain_attributes
-    
+
     
         """
             # step 4: create DATAFRAME for faster simulation (basis input) and replace missing values with sampled ones   
@@ -962,7 +1107,7 @@ if _SIMULATE == True:
         
         _DATAFRAME_MC_FOUNDATION = _DATAFRAME_SIMULATE_ROW.copy().transpose()
         _DATAFRAME_MC_FOUNDATION = pd.concat([_DATAFRAME_MC_FOUNDATION] * _SIMULATION_LENGTH, ignore_index=True)
-        
+
         
         # basis dataframe used for uncertain kde simulation
         _DATAFRAME_MC_UNCERTAIN_KDE_SIMULATION = _DATAFRAME_MC_FOUNDATION.copy()
@@ -1188,17 +1333,26 @@ if _SIMULATE == True:
             _axs[0].axvline(x=y_original[_row], linewidth=8, linestyle = "-", color = "green", label="Original Label")
             _axs[0].axvline(x=y_original_hat[_row], linewidth=4, alpha=1, linestyle = "--", color = "red", label="Predicted Model Label")
             
-            #if _IMPUTE:
-            #    _axs[0].axvline(x=y_impute_hat[_row], linewidth=4, linestyle = "--", color = "purple", label="Impute Prediction" + " (" + _IMPUTE_METHOD.capitalize() + ")") # impute prediction
-            
+
             _axs[0].axvline(x=_y_simulation_uncertain_hat_mean, linewidth=4, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value") # uncert. simulation prediction mean
             
             # Max Density Vertical Lines
             _axs[0].axvline(x=_uncertain_max_density_sigmoid, color="black", linestyle = "-.", linewidth=4, label="Uncert. KDE Max Density") 
 
             
-            _axs[0].legend(["Original Label", "Predicted Model Label", "Uncert. Sim. Mean", "Uncertain Max Density"])
+            _legend1 = _axs[0].legend(["Original Label", "Predicted Model Label", "Uncert. Sim. Mean", "Uncertain Max Density"], loc="upper center", fontsize=12)
 
+            _legend2 = _axs[0].legend(["Mean: " + str(np.round(_y_simulation_uncertain_hat_mean, 3)), 
+                                      "Std: " + str(np.round(_y_simulation_uncertain_hat_std, 3)),
+                                     "MaxDensity: " + str(np.round(_uncertain_max_density_sigmoid, 3)),
+                                     "Density>0.5: " + str(np.round(_uncertain_kde_upper_probability, 3)*100) + "%",
+                                     "Density<0.5: " + str(np.round(_uncertain_kde_lower_probability, 3)*100) + "%"],
+                                     loc="upper left", edgecolor="white", fontsize=14, handlelength=0, handletextpad=0)
+            
+            _axs[0].add_artist(_legend1)
+            _axs[0].add_artist(_legend2)
+            
+            
             """
                 Part 2: Plot_5.1.b: Histogam which shows the original kde simulated row sigmoid results with hue 
             """
@@ -1216,9 +1370,6 @@ if _SIMULATE == True:
             _axs[1].axvline(x=y_original[_row], linewidth=8, linestyle = "-", color = "green", label="Original Label")
             _axs[1].axvline(x=y_original_hat[_row], linewidth=4, alpha=1, linestyle = "--", color = "red", label="Predicted Model Label")
             
-            #if _IMPUTE:
-            #    _axs[1].axvline(x=y_impute_hat[_row], linewidth=4, linestyle = "--", color = "purple", label="Impute Prediction" + " (" + _IMPUTE_METHOD.capitalize() + ")") # impute prediction
-            
             # Simulation Mean 
             _axs[1].axvline(x=_y_simulation_original_hat_mean, linewidth=4, linestyle = "-.", color = "grey", label="Orig. Mean Sim. Value") # orig. simulation prediction mean
         
@@ -1226,8 +1377,20 @@ if _SIMULATE == True:
             _axs[1].axvline(x=_original_max_density_sigmoid, color="black", linestyle = "-.", linewidth=4, label="Orig. KDE Max Density")
             
             
-            _axs[1].legend(["Original Label", "Predicted Model Label", "Orig. Sim. Mean", "Original Max Density"])
+            _legend1 = _axs[1].legend(["Original Label", "Predicted Model Label", "Orig. Sim. Mean", "Original Max Density"], loc="upper center", fontsize=12)
+            
+            
+            _legend2 = _axs[1].legend(["Mean: " + str(np.round(_y_simulation_original_hat_mean, 3)), 
+                                      "Std: " + str(np.round(_y_simulation_original_hat_std, 3)),
+                                     "MaxDensity: " + str(np.round(_original_max_density_sigmoid, 3)),
+                                     "Density>0.5: " + str(np.round(_original_kde_upper_probability, 3)*100) + "%",
+                                     "Density<0.5: " + str(np.round(_original_kde_lower_probability, 3)*100)+ "%"],
+                                     loc="upper left", edgecolor="white", fontsize=14, handlelength=0, handletextpad=0)
+            
+            _axs[1].add_artist(_legend1)
+            _axs[1].add_artist(_legend2)
             plt.show()
+            
             
             
             
@@ -1281,6 +1444,8 @@ if _SIMULATE == True:
             plt.ylabel('Density')
             plt.ylim([0, max(max(_uncertain_kde_pdfs), max(_original_kde_pdfs)) + 0.1])
             plt.show()
+    
+    
     
     
     
@@ -1380,7 +1545,6 @@ if _SIMULATE == True:
 
 
 
- # TODO
 if _IMPUTE == True and _SIMULATE == True:
         
         _min_idx = min(_SIMULATION_RANGE)
@@ -1399,6 +1563,8 @@ if _IMPUTE == True and _SIMULATE == True:
                                                         "1_Imputation-Median_Label" : DATAFRAME_IMPUTE_RESULTS_COLLECTION["MEDIAN_IMPUTE"]["y_impute_hat_labels"][_min_idx:_max_idx],
                                                         "1_Imputation-KNNImp" : DATAFRAME_IMPUTE_RESULTS_COLLECTION["KNN_IMPUTE"]["y_impute_hat"][_min_idx:_max_idx],
                                                         "1_Imputation-KNNIMP_Label" : DATAFRAME_IMPUTE_RESULTS_COLLECTION["KNN_IMPUTE"]["y_impute_hat_labels"][_min_idx:_max_idx],
+                                                        "1_Imputation-ITERIMP" : DATAFRAME_IMPUTE_RESULTS_COLLECTION["ITER_IMPUTE"]["y_impute_hat"][_min_idx:_max_idx],
+                                                        "1_Imputation-ITERIMP_Label" :DATAFRAME_IMPUTE_RESULTS_COLLECTION["ITER_IMPUTE"]["y_impute_hat_labels"][_min_idx:_max_idx],
                                                         
                                                         "2_Orig_Sim_Mean" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.1_Means"],
                                                         "2_Orig_Sim_Mean_Label" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.2_Mean_Labels"],
@@ -1423,6 +1589,7 @@ if _IMPUTE == True and _SIMULATE == True:
                                                         "1_Imp_Mode_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode"], squared=False),                 
                                                         "1_Imp_Median_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median"], squared=False),
                                                         "1_Imp_KNN_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNImp"], squared=False),
+                                                        "1_Imp_ITERIMP_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-ITERIMP"], squared=False),
                                                         "2_Orig_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean"], squared=False),
                                                         "2_Orig_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density"], squared=False),
                                                         "3_Uncert_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean"], squared=False),
@@ -1435,6 +1602,7 @@ if _IMPUTE == True and _SIMULATE == True:
                                                                "1_Imp_Mode_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode"], squared=False),                 
                                                                "1_Imp_Median_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median"], squared=False),
                                                                "1_Imp_KNN_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNImp"], squared=False),
+                                                               "1_Imp_ITERIMP_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-ITERIMP"], squared=False),
                                                                "2_Orig_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean"], squared=False),
                                                                "2_Orig_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density"], squared=False),
                                                                "3_Uncert_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean"], squared=False),
@@ -1447,6 +1615,7 @@ if _IMPUTE == True and _SIMULATE == True:
                                                        "1_Imp_Mode_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode"], squared=False),                 
                                                        "1_Imp_Median_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median"], squared=False),
                                                        "1_Imp_KNN_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNImp"], squared=False),
+                                                       "1_Imp_ITERIMP_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-ITERIMP"], squared=False),
                                                        "2_Orig_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean"], squared=False),
                                                        "2_Orig_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density"], squared=False),
                                                        "3_Uncert_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean"], squared=False),
@@ -1481,9 +1650,13 @@ if _IMPUTE == True and _SIMULATE == True:
                                                        "1_Imp-Median_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median_Label"]),
                                                        "1_Imp-Median_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median_Label"]),
                                                        
-                                                       "1_Imp-KNNIMP_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean_Label"],
+                                                       "1_Imp-KNNIMP_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNIMP_Label"],
                                                        "1_Imp-KNNIMP_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNIMP_Label"]),
                                                        "1_Imp-KNNIMP_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNIMP_Label"]),
+                                                       
+                                                       "1_Imp-ITERIMP_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-ITERIMP_Label"],
+                                                       "1_Imp-ITERIMP_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-ITERIMP_Label"]),
+                                                       "1_Imp-ITERIMP_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-ITERIMP_Label"]),
                                                        
                                                        "2_Orig_Sim_Mean_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean_Label"],
                                                        "2_Orig_Sim_Mean_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean_Label"]),
@@ -1519,6 +1692,9 @@ if _IMPUTE == True and _SIMULATE == True:
                                                              "Correct Orig. labels assigned by 1_Imp-KNNIMP_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-KNNIMP_Label_Corr_Asign_Original"].value_counts(True)[0],
                                                              "Correct Pred. labels assigned by 1_Imp-KNNIMP_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-KNNIMP_Label_Corr_Asign_Predicted"].value_counts(True)[0],                          
                                                              
+                                                             "Correct Orig. labels assigned by 1_Imp-ITERIMP_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-ITERIMP_Label_Corr_Asign_Original"].value_counts(True)[0],
+                                                             "Correct Pred. labels assigned by 1_Imp-ITERIMP_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-ITERIMP_Label_Corr_Asign_Predicted"].value_counts(True)[0],   
+                                                             
                                                              "Correct Orig. labels assigned by 2_Orig_Sim_Mean_Label": DATAFRAME_COMBINED_LABELS.loc["2_Orig_Sim_Mean_Label_Corr_Asign_Original"].value_counts(True)[0],
                                                              "Correct Pred. labels assigned by 2_Orig_Sim_Mean_Label": DATAFRAME_COMBINED_LABELS.loc["2_Orig_Sim_Mean_Label_Corr_Asign_Predicted"].value_counts(True)[0],
                                                              
@@ -1538,6 +1714,7 @@ if _IMPUTE == True and _SIMULATE == True:
                                                    "Mode_Impute_df" : _INPUT_RMSE_MODE,
                                                    "Median_Impute_df" : _INPUT_RMSE_MEDIAN,
                                                    "KNNImp_Impute_df" : _INPUT_RMSE_KNNIMP,
+                                                   "IterImp_Impute_df" : _INPUT_RMSE_ITERIMP,
                                                    "Uncertain_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.0_Input_RMSE"]),
                                                    "Original_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["2_Original_Simulation"]["2.0_Input_RMSE"])
                                                    }, name="RMSE")

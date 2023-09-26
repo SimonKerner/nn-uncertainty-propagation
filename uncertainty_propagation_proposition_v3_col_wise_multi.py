@@ -35,11 +35,15 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.impute import SimpleImputer
 from sklearn.impute import KNNImputer
 
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
 
+import statsmodels.api as sm
 
 import scipy
 import scipy.stats as stats
-
+from scipy import interpolate
+from scipy.special import ndtr
 
 
 ##########################################################################################################################
@@ -127,7 +131,8 @@ _IMPUTE = True
 _SIMULATE = True
 _monte_carlo = False
 _latin_hypercube = True
-_SIMULATION_LENGTH = 100000
+_LHS_MODE = "fast"
+_SIMULATION_LENGTH = 10000
 #_SIMULATION_RANGE = None
 _SIMULATION_RANGE = range(0, 2, 1)
 _simulation_visualizations = True
@@ -527,20 +532,23 @@ if _IMPUTE:
     _DATAFRAME_KNN_IMPUTE = pd.DataFrame(_knn_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1])
     _DATAFRAME_KNN_IMPUTE = _DATAFRAME_KNN_IMPUTE.merge(DATAFRAME_ORIGINAL["Outcome"], left_index=True, right_index=True)
     
-    
     _INPUT_RMSE_KNNIMP = mse(DATAFRAME_ORIGINAL, _DATAFRAME_KNN_IMPUTE, squared=False)
 
-    
+
+    # multiple imputation technique --> MICE Algo.
+    _iter_imp = IterativeImputer(max_iter=10, random_state=_RANDOM_STATE)
+    _DATAFRAME_ITER_IMPUTE = pd.DataFrame(_iter_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1])
+    _DATAFRAME_ITER_IMPUTE = _DATAFRAME_ITER_IMPUTE.merge(DATAFRAME_ORIGINAL["Outcome"], left_index=True, right_index=True)
+
+    _INPUT_RMSE_ITERIMP = mse(DATAFRAME_ORIGINAL, _DATAFRAME_ITER_IMPUTE, squared=False)
+
+
+
     DATAFRAME_IMPUTE_COLLECTION = {"MEAN_IMPUTE" : _DATAFRAME_MEAN_IMPUTE,
                                "MEDIAN_IMPUTE" : _DATAFRAME_MEDIAN_IMPUTE,
                                "MODE_IMPUTE" : _DATAFRAME_MODE_IMPUTE,
-                               "KNN_IMPUTE" : _DATAFRAME_KNN_IMPUTE}
-    
-    
-    DATAFRAME_IMPUTE_STATS = {"MEAN_IMPUTE" : _DATAFRAME_MEAN_IMPUTE.describe(),
-                              "MEDIAN_IMPUTE" : _DATAFRAME_MEDIAN_IMPUTE.describe(),
-                              "MODE_IMPUTE" : _DATAFRAME_MODE_IMPUTE.describe(),
-                              "KNN_IMPUTE" : _DATAFRAME_KNN_IMPUTE.describe()}
+                               "KNN_IMPUTE" : _DATAFRAME_KNN_IMPUTE,
+                               "ITER_IMPUTE" : _DATAFRAME_ITER_IMPUTE}
     
     
 if _SIMULATE:
@@ -769,38 +777,65 @@ if _SIMULATE == True:
         some necessary variables and for further computation or history collection
     """
     
-    def kde_latin_hypercube_sampler(kde_collection, sim_length, random_state):
+    def kde_latin_hypercube_sampler(kde_collection, sim_length, random_state, mode="fast", visualize_lhs_samples=False, attribute_key=""):
         
-        """
-            # @https://github.com/scipy/scipy/blob/v1.3.3/scipy/stats/kde.py#L439
-            # function has been rewritten to hande latin hypercube sampling
-        """
+        ###
+            ### FUNCTION PART 1 --> KDE METRICS
+        ###
         
-        # sample in 1 dimension with specific simulation length
+        if mode =="accurate":
+            
+            # get statsmodels kde of underlying scipy gaussian kde dataset
+            kde_fit = sm.nonparametric.KDEUnivariate(kde_collection.dataset.flatten())
+            kde_fit.fit()
+            
+            support = kde_fit.support
+            cdf = kde_fit.cdf
+        
+        
+        if mode=="fast":
+            
+            # @https://stackoverflow.com/a/47419857
+            stdev = np.sqrt(kde_collection.covariance)[0, 0]
+            support = np.linspace(0, 1, kde_collection_uncertain[_key].n)
+            cdf = ndtr(np.subtract.outer(support, kde_collection.dataset.flatten())/stdev).mean(axis=1)
+            
+
+        
+        # preprocessing of cdf values --> drop duplicates in cdf and support,
+        # if not, there could be problems with interpolation
+        preproc = pd.DataFrame(data={"cdf" : cdf,  
+                                     "support" : support})  
+        
+        preproc = preproc.copy().drop_duplicates(subset='cdf')
+        
+        # calculate inverse of cdf to obtain inverse cdf
+        # inversefunction can be used to sample values with the latin hypercube
+        inversefunction = interpolate.interp1d(preproc["cdf"], preproc["support"], kind='cubic', bounds_error=False)
+        
+        ###
+            ### FUNCTION PART 2 --> LATIN HYPERCUBE METRICS
+        ###
+        
+        # sample in 1-dimension with specific simulation length
         lhs_sampler = stats.qmc.LatinHypercube(1, seed=random_state)
-        lhs_sample = lhs_sampler.random(n=sim_length)
-        
-        # get the underlying dataset of kde_collection
-        kde_dataset = kde_collection.dataset.flatten()
-    
-        # scale the created lhs samples // mul with 100 for index
-        _sample_scaled = stats.qmc.scale(lhs_sample, min(kde_dataset), max(kde_dataset)).flatten()
-        #_uncertain_sample_scaled.sort()
-        #uncertain_kde = kde_collection_uncertain[_key](_uncertain_sample_scaled)
-        #plt.plot(np.linspace(0, 1, _SIMULATION_LENGTH), uncertain_kde)
-    
-        norm = np.transpose(np.random.multivariate_normal(np.zeros((kde_collection.d,), float),
-                                             kde_collection.covariance, size=_SIMULATION_LENGTH))
-        
-        # original function index picker
-        #indices = random.choice(kde_collection_uncertain[_key].n, size=10, p=kde_collection_uncertain[_key].weights)
-        
-        # new index picker with lhs functionality
-        indices = np.array(_sample_scaled * 100, dtype="int32")
-        
-        means = kde_collection.dataset[:, indices]
-        
-        return means + norm
+        lhs_sample = lhs_sampler.random(n=sim_length) 
+
+        # scale the created lhs samples to min and max cdf values
+        lhs_sample_scaled = stats.qmc.scale(lhs_sample, min(preproc["cdf"]), max(preproc["cdf"])).flatten()
+
+        ###
+            ### FUNCTION PART 3 --> CALCULATE LHS SAMPLES
+        ###
+
+        generate_samples = inversefunction(lhs_sample_scaled)
+
+        if visualize_lhs_samples:
+            sns.histplot(generate_samples)
+            plt.title(f"LH-Sample: {attribute_key} - Sample Size: {sim_length}")
+            plt.show()
+            
+        return generate_samples
     
     
     
@@ -953,15 +988,26 @@ if _SIMULATE == True:
             if _monte_carlo:
                 
                 # resample randomly a new dataset of the underlying kde
-                uncertain_sample = kde_collection_uncertain[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-                original_sample = kde_collection_original[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
+                _uncertain_sample = kde_collection_uncertain[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
+                _original_sample = kde_collection_original[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
     
         
             if _latin_hypercube:
                 
-                _uncertain_sample = kde_latin_hypercube_sampler(kde_collection_uncertain[_key], _SIMULATION_LENGTH, _RANDOM_STATE).flatten()
-                _original_sample = kde_latin_hypercube_sampler(kde_collection_original[_key], _SIMULATION_LENGTH, _RANDOM_STATE).flatten()
-            
+                # 1 dimensional latin hypercube sampling
+                _uncertain_sample = kde_latin_hypercube_sampler(kde_collection_uncertain[_key], 
+                                                                _SIMULATION_LENGTH, 
+                                                                _RANDOM_STATE, 
+                                                                mode=_LHS_MODE, 
+                                                                visualize_lhs_samples= False,
+                                                                attribute_key=_key + "//Uncertain").flatten()
+                
+                _original_sample = kde_latin_hypercube_sampler(kde_collection_original[_key], 
+                                                               _SIMULATION_LENGTH, 
+                                                               _RANDOM_STATE, 
+                                                               mode=_LHS_MODE, 
+                                                               visualize_lhs_samples= False,
+                                                               attribute_key=_key + "//Original").flatten()
             
             # if standardize is true and values x are x < 0 or x > 1, then set x respectively to 0 or 1
             if _standardize_data:
@@ -1666,8 +1712,9 @@ if _IMPUTE == True and _SIMULATE == True:
                                                    "Mode_Impute_df" : _INPUT_RMSE_MODE,
                                                    "Median_Impute_df" : _INPUT_RMSE_MEDIAN,
                                                    "KNNImp_Impute_df" : _INPUT_RMSE_KNNIMP,
-                                                   "Uncertain_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.0_Input_RMSE"]),
-                                                   "Original_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.0_Input_RMSE"])
+                                                   "IterImp_Impute_df" : _INPUT_RMSE_ITERIMP,
+                                                   "Uncertain_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.0_Input_RMSE"]),
+                                                   "Original_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["2_Original_Simulation"]["2.0_Input_RMSE"])
                                                    }, name="RMSE")
 
 
