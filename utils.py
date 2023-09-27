@@ -152,53 +152,19 @@ def create_metrics(y_true, predictions):
     """
     print()
     # Scores
-    accuracy = accuracy_score(y_true, predictions)
+
+        
+    report = classification_report(y_true, predictions, digits=4, output_dict=True)
     
-    if len(y_true.unique()) == 2:
-        precision = precision_score(y_true, predictions)
-        recall = recall_score(y_true, predictions)
-        f1 = f1_score(y_true, predictions)
+    print(classification_report(y_true, predictions, digits=4, output_dict=False))
         
-        report = classification_report(y_true, predictions, target_names=['False', 'True'])
-        
-        
-        # Additional Metrics
-        metrics = {
-            'accuracy': accuracy,
-            'precision': precision,
-            'recall': recall,
-            'f1-score': f1,
-            'classification_report': report,
-            }
-        
-    else:
-        
-        report = classification_report(y_true, predictions, target_names=["Label " + str(i) for i in y_true.unique()])
-        
-        # Additional Metrics
-        metrics = {
-            'accuracy': accuracy,
-            'classification_report': report,
-        }
 
     # Confusion Matrix
     cm = confusion_matrix(y_true, predictions)
     display = ConfusionMatrixDisplay(confusion_matrix=cm)
     display.plot()
 
-    metrics["confusion_matrix"] = cm
-
-    # Print Additional Metrics
-    for metric, value in metrics.items():
-        print(f'{metric.capitalize()}:')
-        print(value)
-        print()
-
-    print()
-
-    return metrics
-
-
+    return report
 
 
 def add_missing_values(df, miss_rate, delete_mode="static", random_seed=None):

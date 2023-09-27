@@ -31,12 +31,14 @@ import tensorflow_probability as tfp
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 
+from sklearn.metrics import classification_report
 
 from sklearn.impute import SimpleImputer
 from sklearn.impute import KNNImputer
 
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
+
 
 import statsmodels.api as sm
 
@@ -74,8 +76,8 @@ following all the different settings for this simulation run can be found
 ##########################################################################################################################
 
 #choose working dataset: "australian" or "climate_simulation", "wdbc" -> Breast Cancer Wisconsin (Diagnostic)
-_dataset = "australian"
-
+_dataset = "wdbc"
+_simulate_test_set = False
 
 # set random state          
 _RANDOM_STATE = 24
@@ -91,7 +93,7 @@ _standardize_data = True
 
 
 # settings for visualization
-_visiualize_data = False
+_visiualize_data = True
 _visualize_original_predictions = True
 _visualize_imputed_predictions = True
 
@@ -105,7 +107,7 @@ _load_model = True
 # prediction metrics
 _get_original_prediction_metrics = True
 _get_imputed_prediction_metrics = True
-_get_simulated_prediction_metrics = False
+_get_simulated_prediction_metrics = True
 
 
 # DATAFRAME_MISS settings - Introduction to missing values in the choosen Dataframe
@@ -114,12 +116,12 @@ _load_dataframe_miss = True
 _create_dataframe_miss = True
 
 _DELETE_MODE = "static"     # static (amount of values in row deleted) // percentage (value between 0 and 1)
-_MISS_RATE = 15
+_MISS_RATE = 3
 
 
 #KDE_VALUES OF EACH COLUMN - affected frames are DATAFRAME_SIMULATE -> Uncertain and DATAFRAME -> Certain/True
 _compare_col_kde_distributions = True
-_compare_col_kde_mode = "combined"    # choose between "single", "combined", "both"
+_compare_col_kde_mode = "combined"    # choose between "single", "combined", "both" // combined can only be used when _visualize data == true
 
 
 # modes for deterministic/stochastic experiments on missing dataframes
@@ -128,12 +130,14 @@ _IMPUTE = True
 
 
 _SIMULATE = True
-_monte_carlo = False
-_latin_hypercube = True
+
+_monte_carlo = True
+_latin_hypercube = False
+
 _LHS_MODE = "fast"
 _SIMULATION_LENGTH = 100000
 #_SIMULATION_RANGE = None
-_SIMULATION_RANGE = range(0, 1, 1)
+_SIMULATION_RANGE = range(44, 45, 1)
 _simulation_visualizations = True
 _norm= True
 _save_simulated_results = False
@@ -162,11 +166,13 @@ if _dataset == "wdbc":
     # change string outcome values to type int
     DATAFRAME_ORIGINAL.iloc[:,-1].replace(['B', 'M'], [0, 1], inplace=True)
  
-    # TODO
-    _datatypes=["Categorical", "Continuous", "Continuous", "Categorical", "Categorical", "Categorical", "Continuous", 
-                "Categorical", "Categorical", "Continuous", "Categorical", "Categorical", "Continuous", "Continuous",
-                "Categorical"]
+    _datatypes=["Continuous", "Continuous", "Continuous", "Continuous", "Continuous", "Continuous", "Continuous", 
+                "Continuous", "Continuous", "Continuous", "Continuous", "Continuous", "Continuous", "Continuous",
+                "Continuous", "Continuous", "Continuous", "Continuous", "Continuous", "Continuous", "Continuous",
+                "Continuous", "Continuous", "Continuous", "Continuous", "Continuous", "Continuous", "Continuous",
+                "Continuous", "Continuous", "Categorical"]
  
+    
     
 elif _dataset == "climate_simulation":
     
@@ -180,6 +186,7 @@ elif _dataset == "climate_simulation":
     _datatypes=["Categorical", "Continuous", "Continuous", "Categorical", "Categorical", "Categorical", "Continuous", 
                 "Categorical", "Categorical", "Continuous", "Categorical", "Categorical", "Continuous", "Continuous",
                 "Categorical"]
+
 
 
 elif _dataset == "australian":
@@ -287,11 +294,10 @@ X_original = DATAFRAME_ORIGINAL.iloc[:, 0:-1]
 y_original = DATAFRAME_ORIGINAL[_column_names[-1]]
 
 
-_X_original_train, _X_original_test, _y_original_train,  _y_original_test = train_test_split(X_original, 
+_X_original_train, _X_original_test, _y_original_train, _y_original_test = train_test_split(X_original, 
                                                                                          y_original, 
                                                                                          test_size=0.25,
                                                                                          random_state=_RANDOM_STATE)
-
 
 
 
@@ -366,7 +372,39 @@ if _train_model:
     utils.plot_history(model_history, model_type="binary")
     
     
-  
+# model has now been trained on the train set of the chosen dataframe
+# if simulate_test set --> set X_Original and y_original to test values created above
+    
+if _simulate_test_set:
+    
+    """
+        if this option is chosen, the calculations will be for the test set 
+        -- for simplicity of not chaning the script, DATAFRAME_ORIGINAL will be ste to the ORIGINAL_DATAFRAME
+    """
+    
+    DATAFRAME_ORIGINAL_FULL_VALUES = DATAFRAME_ORIGINAL.copy()
+    
+    X_original = _X_original_test
+    y_original = _y_original_test
+    
+    DATAFRAME_ORIGINAL = X_original.merge(y_original, left_index=True, right_index=True)
+    
+    # visualize the test set again:
+        
+    if _visiualize_data:
+        
+        # Plotting combined distribution using histograms
+        _hist = DATAFRAME_ORIGINAL.hist(column=_column_names, 
+                                        bins=10, 
+                                        figsize=(20, 12), 
+                                        density=False, 
+                                        sharey=False, 
+                                        sharex=False)
+        
+        plt.title('Test Input without missing data')
+        plt.tight_layout()
+        plt.show()
+    
 
 ##########################################################################################################################
 # load model without training
@@ -429,11 +467,13 @@ if _visualize_original_predictions:
 
 if _get_original_prediction_metrics:
     
+    print("\nOriginal Classification Metrics:")
+    print(classification_report(y_original, y_original_hat_labels))
+    
+    original_metrics = classification_report(y_original, y_original_hat_labels, output_dict=True)
 
-    utils.create_metrics(y_original, y_original_hat_labels)
-    plt.show()
 
-sys.exit() 
+
 
 ##########################################################################################################################
 # introduce missing data - aka. aleatoric uncertainty
@@ -613,7 +653,8 @@ if _IMPUTE:
         
         DATAFRAME_IMPUTE_RESULTS_COLLECTION[_frame_key] = {"y_impute_hat" : _y_impute_hat,
                                                            "y_impute_hat_labels" : _y_impute_hat_labels,
-                                                           "y_impute_hat_label_frequency" : _y_impute_hat_label_frequency}
+                                                           "y_impute_hat_label_frequency" : _y_impute_hat_label_frequency,
+                                                           }
         
         
         if _visualize_imputed_predictions:
@@ -636,16 +677,18 @@ if _IMPUTE:
             
             
 
+        if _get_imputed_prediction_metrics:
+            
+            print(f"\n{_frame_key} Imputed Classification Metrics:")
+            print(classification_report(y_original, _y_impute_hat_labels))
+            
+            DATAFRAME_IMPUTE_RESULTS_COLLECTION[_frame_key]["classification_metrics"] = classification_report(y_original, _y_impute_hat_labels, output_dict=True)
+              
 
 
-"""   
-if _get_imputed_prediction_metrics:
-    
-    utils.create_metrics(y_original, y_impute_hat_labels)
-    plt.show()
 
 
-"""
+
 
 
 
@@ -727,7 +770,7 @@ if _SIMULATE:
                 plt.show()
                 
                 
-        elif _compare_col_kde_mode == "combined" or _compare_col_kde_mode == "both":
+        elif (_compare_col_kde_mode == "combined" or _compare_col_kde_mode == "both") and _visiualize_data==True:
     
             """
                 This upcoming plot provides an overall overview over all the single column kde distributuion in a single plot, 
@@ -876,7 +919,7 @@ if _SIMULATE == True:
         
         cum_probs = np.cumsum(probabilities)
         
-
+        # TODO
 
 
         # sample in 1-dimension with specific simulation length
@@ -968,6 +1011,9 @@ if _SIMULATE == True:
             "1.2_Mean_Labels" : [],
             "1.3_Mean_Label_Frequenzy" : [],
             "1.4_Stds" : [],
+            
+            
+            
             "1.5_Max_Density_Sigmoid" : [],
             "1.6_Max_Density_Sig_Label" : [],
             "1.7_Max_Density_Sig_Label_Frequency" : [],
@@ -980,6 +1026,8 @@ if _SIMULATE == True:
             "2.2_Mean_Labels" : [],
             "2.3_Mean_Label_Frequenzy" : [],
             "2.4_Stds" : [],
+            
+            
             "2.5_Max_Density_Sigmoid" : [],
             "2.6_Max_Density_Sig_Label" : [],
             "2.7_Max_Density_Sig_Label_Frequency" : [],
@@ -1046,7 +1094,7 @@ if _SIMULATE == True:
             
 
             # sample from categorical distribution // KDE Distributions
-            elif datatyp_map[_key] == "Continous":
+            elif datatyp_map[_key] == "Continuous":
                 
                 
                 if _monte_carlo:
@@ -1157,34 +1205,43 @@ if _SIMULATE == True:
         # simulation parametric statistics
         _y_simulation_uncertain_hat_mean = _y_simulation_uncertain_hat.mean()
         _y_simulation_uncertain_hat_mean_label = (_y_simulation_uncertain_hat.mean()>0.5).astype("int32")
+        
+        _y_simulation_uncnertain_hat_median = np.median(_y_simulation_uncertain_hat)
+        _y_simulation_uncertain_hat_mean_label = (_y_simulation_uncnertain_hat_median>0.5).astype("int32")
+        
         _y_simulation_uncertain_hat_std = _y_simulation_uncertain_hat.std()
+        
         
         #### simulation non-parametric statistics
         _uncertain_simulation_result_kde = stats.gaussian_kde(_y_simulation_uncertain_hat, 
                                                  bw_method=_PRED_BANDWIDTH, 
                                                  weights=adjust_edgeweight(_y_simulation_uncertain_hat))
 
-        _uncertain_kde_pdfs = _uncertain_simulation_result_kde.pdf(_x_axis)
+        _uncertain_kde_pdfs = _uncertain_simulation_result_kde.pdf(_x_axis) # height on y axis
+        
+        _y_simulation_uncertain_hat_mode = _x_axis[np.argmax(_uncertain_kde_pdfs)] 
+        _y_simulation_uncertain_hat_mode_label = (_y_simulation_uncnertain_hat_median>0.5).astype("int32")
         
         if _norm:
             _uncertain_kde_pdfs = _scaler.fit_transform(_uncertain_kde_pdfs.reshape(-1, 1)).reshape(-1) # TODO
         
-        _uncertain_kde_density_peak_indices = scipy.signal.find_peaks(_uncertain_kde_pdfs)[0] 
         
-        # if max peak value not in list, append to peak history
-        if (np.argmax(_uncertain_kde_pdfs) not in _uncertain_kde_density_peak_indices):
-            _uncertain_kde_density_peak_indices = np.append(_uncertain_kde_density_peak_indices, np.argmax(_uncertain_kde_pdfs))
-            
-        _uncertain_kde_density_peak_pdf = [_uncertain_kde_pdfs[i] for i in _uncertain_kde_density_peak_indices]
-        _uncertain_kde_stats = {int(_uncertain_kde_density_peak_indices[i]) : _uncertain_kde_density_peak_pdf[i] for i in range(len(_uncertain_kde_density_peak_indices))}
+        
+        #height = _uncertain_simulation_result_kde.pdf(_y_simulation_uncertain_hat)
+        #mode_value = values[np.argmax(height)]
+        #print(mode_value)
+        
+
+
+        
         
         # kde integral for percentages under the curve
         _uncertain_kde_lower_probability = round(_uncertain_simulation_result_kde.integrate_box_1d(float("-inf"), 0.5), 8)
         _uncertain_kde_upper_probability = round(_uncertain_simulation_result_kde.integrate_box_1d(0.5, float("inf")), 8)
         _uncertain_kde_sum_prob = round(_uncertain_kde_lower_probability + _uncertain_kde_upper_probability, 2)
         
-        _uncertain_max_density_sigmoid = max(_uncertain_kde_stats, key=_uncertain_kde_stats.get) / len(_x_axis)
-        _uncertain_max_density_label = int(_uncertain_max_density_sigmoid>0.5)
+        #_uncertain_max_density_sigmoid = max(_uncertain_kde_stats, key=_uncertain_kde_stats.get) / len(_x_axis)
+        #_uncertain_max_density_label = int(_uncertain_max_density_sigmoid>0.5)
         
         
         """
@@ -1253,9 +1310,9 @@ if _SIMULATE == True:
                 "1.04_label_frequency" : pd.Series(_y_simulation_uncertain_hat_labels).value_counts(),
                 "1.05_simulation_mean" : _y_simulation_uncertain_hat_mean,
                 "1.06_simulation_std" : _y_simulation_uncertain_hat_std,
-                "1.07_kde_pdfs" : _uncertain_kde_pdfs,
-                "1.08_kde_peaks_and_indices" : _uncertain_kde_stats,
-                "1.09_kde_max_density_sigmoid" : _uncertain_max_density_sigmoid,
+                #"1.07_kde_pdfs" : _uncertain_kde_pdfs,
+                #"1.08_kde_peaks_and_indices" : _uncertain_kde_stats,
+                #"1.09_kde_max_density_sigmoid" : _uncertain_max_density_sigmoid,
                 "1.10_kde_lower_bound_probability" : _uncertain_kde_lower_probability,
                 "1.11_kde_upper_bound_probability" : _uncertain_kde_upper_probability,
                 "1.12_kde_combined_probability" : _uncertain_kde_sum_prob
@@ -1281,7 +1338,7 @@ if _SIMULATE == True:
                 "Label_Frequ_diff" : pd.Series(_y_simulation_original_hat_labels).value_counts() - pd.Series(_y_simulation_uncertain_hat_labels).value_counts(),
                 "Sim_Mean_dist" : np.abs(_y_simulation_original_hat_mean - _y_simulation_uncertain_hat_mean),
                 "Sim_Std_dist" : np.abs(_y_simulation_original_hat_std - _y_simulation_uncertain_hat_std),
-                "Sim_Max_Density_Sigmoid_dist" : np.abs(_original_max_density_sigmoid - _uncertain_max_density_sigmoid),
+                #"Sim_Max_Density_Sigmoid_dist" : np.abs(_original_max_density_sigmoid - _uncertain_max_density_sigmoid),
                 #"KS-Test" : stats.ks_2samp(_original_kde_pdfs, _uncertain_kde_pdfs),
                 #"Mann-Whitney_U-Test" : stats.mannwhitneyu(_original_kde_pdfs, _uncertain_kde_pdfs),
                 #"Wilcoxon" : stats.wilcoxon(_original_kde_pdfs, _uncertain_kde_pdfs)
@@ -1294,8 +1351,8 @@ if _SIMULATE == True:
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.1_Means"].append(_y_simulation_uncertain_hat_mean)
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.2_Mean_Labels"].append(_y_simulation_uncertain_hat_mean_label)       
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.4_Stds"].append(_y_simulation_uncertain_hat_std)
-        SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.5_Max_Density_Sigmoid"].append(_uncertain_max_density_sigmoid)
-        SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.6_Max_Density_Sig_Label"].append(_uncertain_max_density_label)
+        #SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.5_Max_Density_Sigmoid"].append(_uncertain_max_density_sigmoid)
+        #SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.6_Max_Density_Sig_Label"].append(_uncertain_max_density_label)
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.8_Lower_Bound_Probability"].append(_uncertain_kde_lower_probability)
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.9_Upper_Bound_Probability"].append(_uncertain_kde_upper_probability)
         
@@ -1321,7 +1378,7 @@ if _SIMULATE == True:
             """
             # visualize predictions with hist plots
             sns.histplot(data=_y_simulation_uncertain_hat, 
-                         bins=15, 
+                         bins=max(15, int(_SIMULATION_LENGTH/1000)), 
                          binrange=(0, 1), 
                          fill=True,
                          alpha=0.3,
@@ -1337,16 +1394,16 @@ if _SIMULATE == True:
             _axs[0].axvline(x=_y_simulation_uncertain_hat_mean, linewidth=4, linestyle = "-.", color = "grey", label="Uncert. Mean Sim. Value") # uncert. simulation prediction mean
             
             # Max Density Vertical Lines
-            _axs[0].axvline(x=_uncertain_max_density_sigmoid, color="black", linestyle = "-.", linewidth=4, label="Uncert. KDE Max Density") 
+            #_axs[0].axvline(x=_uncertain_max_density_sigmoid, color="black", linestyle = "-.", linewidth=4, label="Uncert. KDE Max Density") 
 
             
-            _legend1 = _axs[0].legend(["Original Label", "Predicted Model Label", "Uncert. Sim. Mean", "Uncertain Max Density"], loc="upper center", fontsize=12)
+            _legend1 = _axs[0].legend(["Original Label", "Predicted Model Label", "Uncert. Sim. Mean", "Uncertain Max Density"], loc="upper right", fontsize=12)
 
             _legend2 = _axs[0].legend(["Mean: " + str(np.round(_y_simulation_uncertain_hat_mean, 3)), 
                                       "Std: " + str(np.round(_y_simulation_uncertain_hat_std, 3)),
-                                     "MaxDensity: " + str(np.round(_uncertain_max_density_sigmoid, 3)),
-                                     "Density>0.5: " + str(np.round(_uncertain_kde_upper_probability, 3)*100) + "%",
-                                     "Density<0.5: " + str(np.round(_uncertain_kde_lower_probability, 3)*100) + "%"],
+                                     #"MaxDensity: " + str(np.round(_uncertain_max_density_sigmoid, 3)),
+                                     "Density>0.5: " + str(np.round(_uncertain_kde_upper_probability*100, 3)) + "%",
+                                     "Density<0.5: " + str(np.round(_uncertain_kde_lower_probability*100, 3)) + "%"],
                                      loc="upper left", edgecolor="white", fontsize=14, handlelength=0, handletextpad=0)
             
             _axs[0].add_artist(_legend1)
@@ -1358,7 +1415,7 @@ if _SIMULATE == True:
             """
             # visualize predictions with hist plots
             sns.histplot(data=_y_simulation_original_hat,
-                         bins=15, 
+                         bins=max(15, int(_SIMULATION_LENGTH/1000)), 
                          binrange=(0, 1), 
                          fill=True,
                          alpha=0.3,
@@ -1377,14 +1434,14 @@ if _SIMULATE == True:
             _axs[1].axvline(x=_original_max_density_sigmoid, color="black", linestyle = "-.", linewidth=4, label="Orig. KDE Max Density")
             
             
-            _legend1 = _axs[1].legend(["Original Label", "Predicted Model Label", "Orig. Sim. Mean", "Original Max Density"], loc="upper center", fontsize=12)
+            _legend1 = _axs[1].legend(["Original Label", "Predicted Model Label", "Orig. Sim. Mean", "Original Max Density"], loc="upper right", fontsize=12)
             
             
             _legend2 = _axs[1].legend(["Mean: " + str(np.round(_y_simulation_original_hat_mean, 3)), 
                                       "Std: " + str(np.round(_y_simulation_original_hat_std, 3)),
                                      "MaxDensity: " + str(np.round(_original_max_density_sigmoid, 3)),
-                                     "Density>0.5: " + str(np.round(_original_kde_upper_probability, 3)*100) + "%",
-                                     "Density<0.5: " + str(np.round(_original_kde_lower_probability, 3)*100)+ "%"],
+                                     "Density>0.5: " + str(np.round(_original_kde_upper_probability*100, 3)) + "%",
+                                     "Density<0.5: " + str(np.round(_original_kde_lower_probability*100, 3))+ "%"],
                                      loc="upper left", edgecolor="white", fontsize=14, handlelength=0, handletextpad=0)
             
             _axs[1].add_artist(_legend1)
@@ -1412,11 +1469,11 @@ if _SIMULATE == True:
             plt.axvline(x=_y_simulation_original_hat_mean, linewidth=2, linestyle = "-.", color = "pink", alpha=1, label="Orig. Sim. Mean") 
   
 
-            # Max Density Vertical Lines
-            plt.vlines(x=_uncertain_max_density_sigmoid, 
-                       ymin = 0, ymax = max(_uncertain_kde_density_peak_pdf), 
-                       color="grey", linestyle = "-.", linewidth=0.9, 
-                       label="Uncert. KDE Max Density") 
+            ## Max Density Vertical Lines
+            #plt.vlines(x=_uncertain_max_density_sigmoid, 
+            #           ymin = 0, ymax = max(_uncertain_kde_density_peak_pdf), 
+            #           color="grey", linestyle = "-.", linewidth=0.9, 
+            #           label="Uncert. KDE Max Density") 
             
             plt.vlines(x=_original_max_density_sigmoid, 
                        ymin = 0, ymax = max(_original_kde_density_peak_pdf), 
@@ -1708,6 +1765,10 @@ if _IMPUTE == True and _SIMULATE == True:
                                                              "Correct Pred. labels assigned by 3_Uncert_Sim_Max_Density_Label": DATAFRAME_COMBINED_LABELS.loc["3_Uncert_Sim_Max_Density_Label_Corr_Asign_Predicted"].value_counts(True)[0],
                                                              })
     
+
+        
+
+
 
         # calculate the Input RMSE between the original DataFrame and the Uncertain DataFrames    
         DATAFRAME_INPUT_ANALYSIS = pd.Series(data={"Mean_Impute_df" : _INPUT_RMSE_MEAN,
