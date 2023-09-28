@@ -7,7 +7,9 @@ Created on Sun Jun 11 10:25:12 2023
 
 from __future__ import division, print_function
 import matplotlib.pyplot as plt
-
+import time
+import sys
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 import pandas as pd
@@ -19,125 +21,36 @@ from sklearn.neighbors import KernelDensity
 
 import seaborn as sns
 
+import statsmodels.api as sm
 
+import scipy
+import scipy.stats as stats
+from scipy import interpolate
+from scipy.special import ndtr
+
+from sklearn.metrics import mean_squared_error as mse
 
 ##########################################################################################################################
 # Define helper functions
 ##########################################################################################################################
-    
-    
-def plot_history(history, smooth=False, log_scale=False, model_type=None):
-    
-    """
-    Plots the training and validation metrics from the training history.
-    
-    Args:
-        history (History): Training history object.
-        smooth (bool): Whether to apply smoothing to the metrics curves. Defaults to False.
-        log_scale (bool): Whether to use a logarithmic scale on the y-axis. Defaults to False.
-    
-    """
-    
+"""
+import math
 
-    if model_type == "binary":
-        metric_labels = {
-            'loss': 'Loss',
-            'accuracy': 'Accuracy',
-            'mse': 'Mean Squared Error',
-            'mae': 'Mean Absolute Error',
-            'mape': 'Mean Absolute Percentage Error',
-            'msle': 'Mean Squared Logarithmic Error',
-            'cosine_similarity': 'Cosine Similarity'
-        }
+def convert_size(size_bytes):
+    if size_bytes == 0:
+        return "0B"
+    size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+    i = int(math.floor(math.log(size_bytes, 1024)))
+    p = math.pow(1024, i)
+    s = round(size_bytes / p, 2)
+    return "%s %s" % (s, size_name[i])
+       
+x = sys.getsizeof(_uncertain_sim_row_metrics)*5000
+convert_size(x)
+"""
 
-    elif model_type == "multi":
-        
-        metric_labels = {
-            'tf.nn.softmax_loss': 'tf.nn.softmax_loss',
-            'tf.nn.softmax_accuracy': 'tf.nn.softmax_accuracy',
-            'tf.math.sigmoid_loss': 'tf.math.sigmoid_loss',
-            'tf.math.sigmoid_accuracy': 'tf.math.sigmoid_accuracy',
-        }
-        
-    else:
-        return None
-    
-
-    num_metrics = len(history.history)
-    subplot_rows = (num_metrics + 1) // 2  # Adjust the subplot layout based on the number of metrics
-
-    fig, axes = plt.subplots(subplot_rows, 2, figsize=(12, 4 * subplot_rows))
-
-    idx = 0  # Keep track of the current subplot index
-
-    for metric, values in history.history.items():
-        if metric in metric_labels:
-            row = idx // 2
-            col = idx % 2
-
-            ax = axes[row, col]
-
-            if smooth:
-                metric_values = smooth_curve(values)
-            else:
-                metric_values = values
-
-            ax.plot(range(1, len(metric_values) + 1), metric_values, label='Training ' + metric_labels[metric])
-
-            val_metric = 'val_' + metric
-            if val_metric in history.history:
-                val_metric_values = history.history[val_metric]
-                ax.plot(range(1, len(val_metric_values) + 1), val_metric_values, label='Validation ' + metric_labels[metric])
-
-            ax.set_title(metric_labels[metric])
-
-            if log_scale:
-                ax.set_yscale('log')
-
-            ax.set_xlabel('Epochs')
-            ax.set_ylabel(metric_labels[metric])
-            ax.legend()
-
-            idx += 1  # Increment the subplot index
-
-    # Remove empty subplots
-    while idx < subplot_rows * 2:
-        row = idx // 2
-        col = idx % 2
-        fig.delaxes(axes[row, col])
-        idx += 1
-
-    plt.tight_layout()
-    plt.show()
-
-
-def smooth_curve(points, factor=0.8):
-    
-    """
-    Applies smoothing to a list of points using exponential moving average.
-    
-    Args:
-        points (list): List of numeric values.
-        factor (float): Smoothing factor. Defaults to 0.8.
-    
-    Returns:
-        list: Smoothed list of points.
-    
-    """
-    
-    smoothed_points = []
-    for point in points:
-        if smoothed_points:
-            previous = smoothed_points[-1]
-            smoothed_points.append(previous * factor + point * (1 - factor))
-        else:
-            smoothed_points.append(point)
-    return smoothed_points
-
-
-
-
-def create_metrics(y_true, predictions):
+   
+def create_metrics(y_true, predictions, print_report):
     
     """
     Calculates various evaluation metrics based on the true labels and predicted values.
@@ -150,21 +63,22 @@ def create_metrics(y_true, predictions):
         dict: Dictionary containing the calculated metrics.
 
     """
-    print()
+    
     # Scores
-
-        
     report = classification_report(y_true, predictions, digits=4, output_dict=True)
     
-    print(classification_report(y_true, predictions, digits=4, output_dict=False))
+    if print_report:
         
-
-    # Confusion Matrix
-    cm = confusion_matrix(y_true, predictions)
-    display = ConfusionMatrixDisplay(confusion_matrix=cm)
-    display.plot()
+        print("\n" + classification_report(y_true, predictions, digits=4, output_dict=False))
+        
+        # Confusion Matrix
+        cm = confusion_matrix(y_true, predictions)
+        display = ConfusionMatrixDisplay(confusion_matrix=cm)
+        display.plot()
 
     return report
+
+
 
 
 def add_missing_values(df, miss_rate, delete_mode="static", random_seed=None):
@@ -223,42 +137,342 @@ def add_missing_values(df, miss_rate, delete_mode="static", random_seed=None):
 
     
     
-"""
-"""         # test for the equality of kde samples from attributes with different missing rates of the different kde's
-"""    
-    
-   ##-----------------------------------> just some tests
-    
-first_attr_orig = kde_collection_original[0]
 
-first_attr_uncert = kde_collection_uncertain[0]
+def kde_collection_creator(dataframe, column_names, bw_method):
+    
+    # this creator collects the column wise kernel density estimations of a given dataframe
+    
+    kde_collection = []
+    
+    for column in column_names:
+        
+        # get the kde of all values inside a column of the dataset
+        column_values = dataframe[column].dropna().values
+        
+        kde = stats.gaussian_kde(column_values, bw_method=bw_method)   
+        kde_collection.append(kde)
+    
+    # to convert lists to dictionary
+    kde_collection = {column_names[i]: kde_collection[i] for i in range(len(column_names))}  
+    
+    return kde_collection
+
+
+
+def kde_latin_hypercube_sampler(kde_collection, sim_length, random_state, mode="fast", visualize_lhs_samples=False, attributekey=""):
+    
+    ###
+        ### FUNCTION PART 1 --> KDE METRICS
+    ###
+    
+    if mode =="accurate":
+        
+        # get statsmodels kde of underlying scipy gaussian kde dataset
+        kde_fit = sm.nonparametric.KDEUnivariate(kde_collection.dataset.flatten())
+        kde_fit.fit()
+        
+        support = kde_fit.support
+        cdf = kde_fit.cdf
     
     
-first_attr_orig_value = first_attr_orig.pdf(0.3)
+    if mode=="fast":
+        
+        # @https://stackoverflow.com/a/47419857
+        stdev = np.sqrt(kde_collection.covariance)[0, 0]
+        support = np.linspace(0, 1, kde_collection.n)
+        cdf = ndtr(np.subtract.outer(support, kde_collection.dataset.flatten())/stdev).mean(axis=1)
+        
+
     
-first_attr_uncert_value = first_attr_uncert.pdf(0.3)   
+    # preprocessing of cdf values --> drop duplicates in cdf and support,
+    # if not, there could be problems with interpolation
+    preproc = pd.DataFrame(data={"cdf" : cdf,  
+                                 "support" : support})  
+    
+    preproc = preproc.copy().drop_duplicates(subset='cdf')
+    
+    # calculate inverse of cdf to obtain inverse cdf
+    # inversefunction can be used to sample values with the latin hypercube
+    inversefunction = interpolate.interp1d(preproc["cdf"], preproc["support"], kind='cubic', bounds_error=False)
+    
+    ###
+        ### FUNCTION PART 2 --> LATIN HYPERCUBE METRICS
+    ###
+    
+    # sample in 1-dimension with specific simulation length
+    lhs_sampler = stats.qmc.LatinHypercube(1, seed=random_state)
+    lhs_sample = lhs_sampler.random(n=sim_length) 
+
+    # scale the created lhs samples to min and max cdf values
+    lhs_sample_scaled = stats.qmc.scale(lhs_sample, min(preproc["cdf"]), max(preproc["cdf"])).flatten()
+
+    ###
+        ### FUNCTION PART 3 --> CALCULATE LHS SAMPLES
+    ###
+
+    generate_samples = inversefunction(lhs_sample_scaled)
+
+    if visualize_lhs_samples:
+        sns.histplot(generate_samples)
+        plt.title(f"LH-Sample: {attributekey} - Sample Size: {sim_length}")
+        plt.show()
+        
+    return generate_samples
+
+
+
+
+def categorical_latin_hypercube_sampler(dataframe, key, sim_length, random_state):
+    
+    pass
+    
+    """
+    dataframe = DATAFRAME_ORIGINAL 
+    key = "Attribute: 4"
+    sim_length=_SIMULATION_LENGTH
+    random_state = _RANDOM_STATE
+    
+    # get frame column wit categorical data 
+    column = dataframe.loc[:,key]
+    
+    # get unique values and normalize to probabilities // nan values get deleted
+    unique = column.value_counts(normalize=True).sort_index()
+
+    categories = np.array(list(unique.index))
+    probabilities = unique.values
+    
+    cum_probs = np.cumsum(probabilities)
+    
+    # TODO
+
+
+    # sample in 1-dimension with specific simulation length
+    lhs_sampler = stats.qmc.LatinHypercube(1, seed=random_state)
+    lhs_sample = lhs_sampler.random(n=sim_length) 
+
+    # scale the created lhs samples to min and max cdf values
+    lhs_sample_scaled = stats.qmc.scale(lhs_sample, min(cum_probs), max(cum_probs)).flatten()
+
+
+    hist = np.histogram(lhs_sample_scaled, cum_probs)
+    sns.histplot(hist[0], bins=len(categories))
+
+        
+    return None#generate_samples
+    """
+    
     
 
-print("Original", first_attr_orig_value)
-print("Uncertain", first_attr_uncert_value)
+def categorical_distribution_sample(dataframe, key, sim_length):
+    
+    # get frame column wit categorical data 
+    column = dataframe.loc[:,key]
+    
+    # get unique values and normalize to probabilities // nan values get deleted
+    unique = column.value_counts(normalize=True).sort_index()
+
+    categories = np.array(list(unique.index))
+    probabilities = unique.values
+    
+    draw_sample = np.random.choice(categories, sim_length, p=probabilities)
+    
+    return draw_sample
+
+
+
+
+
+# Weighting and clipping
+# Amount of density below 0 & above 1
+def adjust_edgeweight(y_hat, bw_method):
+    
+    # @https://andrewpwheeler.com/2021/06/07/kde-plots-for-predicted-probabilities-in-python/
+    
+    # if chosen kde bandwidth is not a number, reuturn weights 0 and compute default values
+    if type(bw_method) not in [int, float]:
+        edgeweight = None
+        return edgeweight
+    
+    below_0 = stats.norm.cdf(x=0, loc=y_hat, scale=bw_method)
+    above_1 = 1 - stats.norm.cdf(x=1, loc=y_hat, scale=bw_method)
+    
+    edgeweight = 1 / (1 - below_0 - above_1)
+    
+    return edgeweight
+
+
+
+
+def generate_simulation_sample_collection(uncertain_attributes, dataframe_categorical, kde_collection, monte_carlo, latin_hypercube, standardize_data, datatype_map, column_names,
+                                          simulation_length, random_state, lhs_mode, visualize_lhs_samples, lhs_prefix="None"):
+    
+        """
+            # step 3: sample a value from the specific kde of the missing value - aka. beginning of MonteCarlo Simulation
+            # --> and safe sampled values for this row in a history
+        """
+        
+        sample_collection = []
+        
+        # sample from uncertain and original kde for input imputation
+        for key in uncertain_attributes:
+
+            # sample from categorical distribution
+            if datatype_map[key] == "Categorical":
+
+                # random samples from with respective probabilities
+                categorical_sample = categorical_distribution_sample(dataframe_categorical, key)
+                
+                # append draws to collection
+                sample_collection.append(categorical_sample)
+
+
+            # sample from categorical distribution // KDE Distributions
+            elif datatype_map[key] == "Continuous":
+                
+                if monte_carlo:
+                    
+                    # resample randomly a new dataset of the underlying kde
+                    distribution_sample = kde_collection[key].resample(simulation_length, seed=random_state).flatten()
+
+                if latin_hypercube:
+                    
+                    # 1 dimensional latin hypercube sampling
+                    distribution_sample = kde_latin_hypercube_sampler(kde_collection[key], simulation_length, random_state, 
+                                                                      mode=lhs_mode, visualize_lhs_samples=visualize_lhs_samples,
+                                                                      attributekey=key + lhs_prefix).flatten()
+                
+                # if standardize is true and values x are x < 0 or x > 1, then set x respectively to 0 or 1
+                if standardize_data:
+                    
+                    distribution_sample[(distribution_sample < 0)] = 0
+                    distribution_sample[(distribution_sample > 1)] = 1
+                    
+
+                sample_collection.append(distribution_sample)
+
+            
+            else: 
+                print("Error in datatype_map")
+                sys.exit()
+
+
+
+        sample_collection = pd.DataFrame(sample_collection).transpose()
+        sample_collection.columns = uncertain_attributes
+
+        
+        return sample_collection
     
     
-first_attr_orig_sample = first_attr_orig.resample(100000)
     
-first_attr_uncert_sample = first_attr_uncert.resample(100000)
+def generate_simulation_inputs(simulation_row, simulation_length, uncertain_attributes, sample_collection):
     
+    """
+        # step 4: create DATAFRAME for faster simulation (basis input) and replace missing values with sampled ones   
+        # index length of DATAFRAME_MISS_ROW is now equal to number of simulations
+    """
+    
+    # expand simulation row to be as long as the simulation length
+    sim_foundation = simulation_row.copy().transpose()
+    sim_foundation = pd.concat([sim_foundation] * simulation_length, ignore_index=True)
 
-first_attr_orig_stats = stats.describe(first_attr_orig_sample.transpose())
-print(first_attr_orig_stats)
+    # basis dataframe used for simulation
+    dataframe_distribution = sim_foundation.copy()
+    
+    # replace the missing values in dataframe_distribution with the created distribution samples 
+    for col in uncertain_attributes:
+        
+        dataframe_distribution[col] = sample_collection[col]
 
-first_attr_uncert_stats = stats.describe(first_attr_uncert_sample.transpose())
-print(first_attr_uncert_stats)
+    return dataframe_distribution
 
-sns.histplot(first_attr_orig_sample.transpose())
-plt.show()
-sns.histplot(first_attr_uncert_sample.transpose())
-plt.show()
 
-"""  
-"""
-"""
+def create_pred_simulation_metrics(y_simulation_hat, bw_method, x_axis, normalize):
+    
+        # simulation non-parametric statistics
+        simulation_result_kde = stats.gaussian_kde(y_simulation_hat, bw_method=bw_method, 
+                                                   weights=adjust_edgeweight(y_simulation_hat, bw_method))
+        
+        kde_pdfs = simulation_result_kde.pdf(x_axis) 
+        
+        if normalize:
+            scaler = MinMaxScaler()
+            kde_pdfs = scaler.fit_transform(kde_pdfs.reshape(-1, 1)).reshape(-1)   
+        
+        
+        row_metrics = {"y_hat" : y_simulation_hat,
+                                      "y_hat_labels" : (y_simulation_hat>0.5).astype("int32"),
+                                      "mean" : y_simulation_hat.mean(),
+                                      "median" : np.median(y_simulation_hat),
+                                      "mode" : x_axis[np.argmax(kde_pdfs)],
+                                      "std" : y_simulation_hat.std(),
+                                      "pdfs" : kde_pdfs,
+                                      "lower_probability" : round(simulation_result_kde.integrate_box_1d(float("-inf"), 0.5), 8),
+                                      "upper_probability" : round(simulation_result_kde.integrate_box_1d(0.5, float("inf")), 8),
+                                      #"input_rmse" : _original_sim_input_rmse
+                                      }
+        
+        row_metrics["mean_label"] = (row_metrics["mean"]>0.5).astype("int32")
+        row_metrics["median_label"] = (row_metrics["median"]>0.5).astype("int32")
+        row_metrics["mode_label"] = (row_metrics["mode"]>0.5).astype("int32")
+        row_metrics["probability_label"] = ((row_metrics["upper_probability"])>0.5).astype("int32")
+        row_metrics["probability_sum"] = round(row_metrics["lower_probability"] + row_metrics["upper_probability"], 2)
+   
+        return row_metrics
+    
+    
+    
+def binary_sample_and_predict(model, simulation_row, original_input_row, dataframe_categorical, uncertain_attributes, 
+                              standardize_data, datatype_map, column_names, simulation_length, random_state, 
+                              monte_carlo, kde_collection, normalize_kde, bw_method, x_axis,
+                              latin_hypercube, lhs_mode, visualize_lhs_samples, lhs_prefix):
+    
+        # PART 1: SAMPLE FROM DISTRIBUTION
+    
+        _start_uncert_sample_time = time.time()
+        
+        INPUT_SAMPLE_COLLECTION = generate_simulation_sample_collection(uncertain_attributes = uncertain_attributes, 
+                                                                             dataframe_categorical = dataframe_categorical, 
+                                                                             kde_collection = kde_collection, 
+                                                                             monte_carlo = monte_carlo, 
+                                                                             latin_hypercube = latin_hypercube, 
+                                                                             standardize_data = standardize_data, 
+                                                                             datatype_map = datatype_map, 
+                                                                             column_names = column_names,                                            
+                                                                             simulation_length = simulation_length, 
+                                                                             random_state = random_state, 
+                                                                             lhs_mode = lhs_mode, 
+                                                                             visualize_lhs_samples = visualize_lhs_samples, 
+                                                                             lhs_prefix = lhs_prefix)
+        
+        
+        # PART 2: COMBINE(IMPUTE) DATAFRAM WITH SAMPLES TO CREATE INPUT
+        
+        _X_SIMULATION_INPUT = generate_simulation_inputs(simulation_row = simulation_row, 
+                                                         simulation_length = simulation_length, 
+                                                         uncertain_attributes = uncertain_attributes, 
+                                                         sample_collection = INPUT_SAMPLE_COLLECTION).iloc[:,:-1]
+        
+        _end_uncert_sample_time = time.time() - _start_uncert_sample_time
+
+
+
+        # PART 3: GET PREDICTION AND METRICS        
+
+        _start_uncert_pred_time = time.time()
+        
+        Y_SIMULATION_HAT = model.predict(_X_SIMULATION_INPUT, verbose=0).flatten()
+        
+        _end_uncert_pred_time = time.time() - _start_uncert_pred_time
+        
+        
+        sim_row_metrics = create_pred_simulation_metrics(y_simulation_hat=Y_SIMULATION_HAT, 
+                                                         bw_method=bw_method, 
+                                                         x_axis=x_axis, 
+                                                         normalize=normalize_kde)
+        
+        sim_row_metrics["input_rmse"] = mse(original_input_row, _X_SIMULATION_INPUT, squared=False)  
+        sim_row_metrics["sample_time"] = _end_uncert_sample_time
+        sim_row_metrics["prediction_time"] = _end_uncert_pred_time
+        
+        return sim_row_metrics

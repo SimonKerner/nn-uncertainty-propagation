@@ -985,47 +985,73 @@ if _SIMULATE == True:
         # sample from uncertain and original kde for input imputation
         for _key in _uncertain_attributes:
 
-            if _monte_carlo:
+            # sample from categorical distribution
+            if datatype_map[_key] == "Categorical":
+
+                # random samples from with respective probabilities
+                _uncertain_categ_sample = utils.categorical_distribution_sample(_DATAFRAME_SIMULATE, _key)
+                _original_categ_sample = utils.categorical_distribution_sample(DATAFRAME_ORIGINAL, _key) 
+
                 
-                # resample randomly a new dataset of the underlying kde
-                _uncertain_sample = kde_collection_uncertain[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-                _original_sample = kde_collection_original[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-    
-        
-            if _latin_hypercube:
-                
-                # 1 dimensional latin hypercube sampling
-                _uncertain_sample = kde_latin_hypercube_sampler(kde_collection_uncertain[_key], 
-                                                                _SIMULATION_LENGTH, 
-                                                                _RANDOM_STATE, 
-                                                                mode=_LHS_MODE, 
-                                                                visualize_lhs_samples= False,
-                                                                attribute_key=_key + "//Uncertain").flatten()
-                
-                _original_sample = kde_latin_hypercube_sampler(kde_collection_original[_key], 
-                                                               _SIMULATION_LENGTH, 
-                                                               _RANDOM_STATE, 
-                                                               mode=_LHS_MODE, 
-                                                               visualize_lhs_samples= False,
-                                                               attribute_key=_key + "//Original").flatten()
+                # append draws to collection
+                _uncertain_sample_collection.append(_uncertain_categ_sample)
+                _original_sample_collection.append(_original_categ_sample)
+
             
-            # if standardize is true and values x are x < 0 or x > 1, then set x respectively to 0 or 1
-            if _standardize_data:
+
+            # sample from categorical distribution // KDE Distributions
+            elif datatype_map[_key] == "Continuous":
                 
-                _uncertain_sample[(_uncertain_sample < 0)] = 0
-                _uncertain_sample[(_uncertain_sample > 1)] = 1
                 
-                _original_sample[(_original_sample < 0)] = 0
-                _original_sample[(_original_sample > 1)] = 1
+                if _monte_carlo:
+                    
+                    # resample randomly a new dataset of the underlying kde
+                    _uncertain_sample = kde_collection_uncertain[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
+                    _original_sample = kde_collection_original[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
+        
+            
+                if _latin_hypercube:
+                    
+                    # 1 dimensional latin hypercube sampling
+                    _uncertain_sample = utils.kde_latin_hypercube_sampler(kde_collection_uncertain[_key], 
+                                                                          _SIMULATION_LENGTH, 
+                                                                          _RANDOM_STATE, 
+                                                                          mode=_LHS_MODE, 
+                                                                          visualize_lhs_samples= False,
+                                                                          attribute_key=_key + "//Uncertain").flatten()
+                    
+                    _original_sample = utils.kde_latin_hypercube_sampler(kde_collection_original[_key], 
+                                                                         _SIMULATION_LENGTH, 
+                                                                         _RANDOM_STATE, 
+                                                                         mode=_LHS_MODE, 
+                                                                         visualize_lhs_samples= False,
+                                                                         attribute_key=_key + "//Original").flatten()
+                
+                
+                # if standardize is true and values x are x < 0 or x > 1, then set x respectively to 0 or 1
+                if _standardize_data:
+                    
+                    _uncertain_sample[(_uncertain_sample < 0)] = 0
+                    _uncertain_sample[(_uncertain_sample > 1)] = 1
+                    
+                    _original_sample[(_original_sample < 0)] = 0
+                    _original_sample[(_original_sample > 1)] = 1
 
 
-            _uncertain_sample_collection.append(_uncertain_sample)
-            _original_sample_collection.append(_original_sample)  
+                _uncertain_sample_collection.append(_uncertain_sample)
+                _original_sample_collection.append(_original_sample)
+            
+            else: 
+                print("Error in datatype_map")
+                sys.exit()
+
+
 
         _uncertain_sample_collection = pd.DataFrame(_uncertain_sample_collection).transpose()
         _uncertain_sample_collection.columns = _uncertain_attributes
-    
+
         _original_sample_collection = pd.DataFrame(_original_sample_collection).transpose()
+        _original_sample_collection.columns = _uncertain_attributes
         _original_sample_collection.columns = _uncertain_attributes
     
     
