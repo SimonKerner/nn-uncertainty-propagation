@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 import matplotlib.pyplot as plt
-import seaborn as sns
+#import seaborn as sns
 import time
 
 import tensorflow as tf
@@ -33,21 +33,21 @@ from tensorflow import keras
 from tensorflow.keras import layers
 
 from sklearn.metrics import mean_squared_error as mse
-import tensorflow_probability as tfp
+#import tensorflow_probability as tfp
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 
-from sklearn.metrics import classification_report
+#from sklearn.metrics import classification_report
 
 from sklearn.impute import SimpleImputer
 from sklearn.impute import KNNImputer
-
+from sklearn.metrics import roc_auc_score, roc_curve, average_precision_score
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 
 
-import statsmodels.api as sm
+#import statsmodels.api as sm
 
 import scipy
 import scipy.stats as stats
@@ -85,7 +85,7 @@ _results_path = os.path.join(os.getcwd(), 'sim_results')
 
 #choose working dataset: "australian" or "climate_simulation", "wdbc" -> Breast Cancer Wisconsin (Diagnostic)
 _dataset = "wdbc"
-_simulate_test_set = False
+_simulate_test_set = True
 
 # set random state          
 _RANDOM_STATE = 24
@@ -102,8 +102,8 @@ _standardize_data = True
 
 # settings for visualization
 _visiualize_data = False
-_visualize_original_predictions = False
-_visualize_imputed_predictions = False
+_visualize_original_predictions = True
+_visualize_imputed_predictions = True
 
 
 # train or load model
@@ -115,10 +115,10 @@ _load_old_model = True
 # DATAFRAME_MISS settings - Introduction to missing values in the choosen Dataframe
 # load DataFrame_MISS // if True, an already created one will be loaded, else a new one will be created
 _load_dataframe_miss = True
-_create_dataframe_miss = False
+_create_dataframe_miss = True
 
 _DELETE_MODE = "static"     # static (amount of values in row deleted) // percentage (value between 0 and 1)
-_MISS_RATE = 3
+_MISS_RATE = 5
 
 
 #KDE_VALUES OF EACH COLUMN - affected frames are DATAFRAME_SIMULATE -> Uncertain and DATAFRAME -> Certain/True
@@ -130,14 +130,13 @@ _compare_col_kde_mode = "combined"    # choose between "single", "combined", "bo
 # choose between kde_imputer, mean, median, most_frequent, KNNImputer
 _IMPUTE = True
 
-
 _SIMULATE = True
 
 _monte_carlo = False
 _latin_hypercube = True
 
 _LHS_MODE = "fast"
-_SIMULATION_LENGTH = 100
+_SIMULATION_LENGTH = 10000
 #_SIMULATION_RANGE = None
 _SIMULATION_RANGE = range(44, 45, 1)
 _simulation_visualizations = True
@@ -199,8 +198,6 @@ _X_original_train, _X_original_test, _y_original_train, _y_original_test = train
                                                                                             random_state=_RANDOM_STATE)
 
 
-
-
 ##########################################################################################################################
 """
         # create standard vanilla feed forward feural network
@@ -213,6 +210,12 @@ if _train_model:
                                 _y_original_train, _y_original_test, _save_new_model)
 
 
+##########################################################################################################################
+"""
+        # swap full dataset to test dataset and reset indices
+"""
+
+
 if _simulate_test_set:
     
     """
@@ -221,10 +224,10 @@ if _simulate_test_set:
             -- for simplicity of not chaning the script, DATAFRAME_ORIGINAL will be ste to the ORIGINAL_DATAFRAME
     """
     
-    DATAFRAME_ORIGINAL_FULL_VALUES = DATAFRAME_ORIGINAL.copy()
+    #DATAFRAME_ORIGINAL_FULL_VALUES = DATAFRAME_ORIGINAL.copy()
     
-    X_original = _X_original_test
-    y_original = _y_original_test
+    X_original = _X_original_test.reset_index(drop=True)
+    y_original = _y_original_test.reset_index(drop=True)
     
     DATAFRAME_ORIGINAL = X_original.merge(y_original, left_index=True, right_index=True)
     
@@ -250,6 +253,18 @@ if _load_old_model:
     
 
 
+from mlxtend.evaluate import bias_variance_decomp
+
+avg_expected_loss, avg_bias, avg_var = bias_variance_decomp(
+        model, _X_original_train.values, _y_original_train.values, _X_original_test.values, _y_original_test.values, 
+        loss='mse',
+        num_rounds=100,
+        random_seed=24,
+        epochs=200, # fit_param
+        verbose=0) # fit_param
+
+
+
 ##########################################################################################################################
 """
         #   RESULTS // Original Precictions
@@ -258,11 +273,24 @@ if _load_old_model:
         # singe prediction metrics with a perfectly trained model - no uncertainties -- deterministic as usual
 """
 
+
 print("\nPredictions for complete Dataset without uncertainties:")
 
 original_metrics = {}
+
+_orig_start_sample_time = time.time()
+
 original_metrics["y_hat"] = model.predict(X_original).flatten()
+
+_orig_end_sample_time = time.time() - _orig_start_sample_time
+
+
 original_metrics["y_hat_labels"] = (original_metrics["y_hat"]>0.5).astype("int32")
+original_metrics["input_rmse"] = mse(DATAFRAME_ORIGINAL, DATAFRAME_ORIGINAL)
+original_metrics["rmse_to_original_label"] = mse(y_original, original_metrics["y_hat"])
+original_metrics["pred_time"] = _orig_end_sample_time
+original_metrics["roc_auc"] = roc_auc_score(y_original, original_metrics["y_hat"])
+original_metrics["prc_auc"] = average_precision_score(y_original, original_metrics["y_hat"])
 
 
 if _visualize_original_predictions: 
@@ -271,11 +299,19 @@ if _visualize_original_predictions:
                                  title='Original (True) combined predictions')
 
 
+if _visualize_imputed_predictions:
+    
+    dvis.roc_curves(y_original, [original_metrics])
+    plt.show()       
+      
+    
+    dvis.pre_recall_curve(y_original, [original_metrics])
+    plt.show()     
 
     
 print("\nOriginal Classification Metrics:")
 original_metrics["metrics"] = utils.create_metrics(y_original, original_metrics["y_hat_labels"], 
-                                                   print_report=True)
+                                                   print_report=False)
 
 
 
@@ -288,7 +324,7 @@ original_metrics["metrics"] = utils.create_metrics(y_original, original_metrics[
 
 
 DATAFRAME_MISS = load_miss_dataframe(_dataset, DATAFRAME_ORIGINAL, _MISS_RATE, _DELETE_MODE, _RANDOM_STATE,
-                                     _load_dataframe_miss, _create_dataframe_miss)
+                                     _load_dataframe_miss, _create_dataframe_miss, _simulate_test_set)
 
 
 if _visiualize_data:
@@ -333,39 +369,65 @@ if _visiualize_data:
     
 if _IMPUTE:
     
-    # mean imputation
+    """
+        # mean imputation
+    """
+    _mean_start_sample_time = time.time()
+    
     _mean_imp = SimpleImputer(strategy="mean")
     _DATAFRAME_MEAN_IMPUTE = pd.DataFrame(_mean_imp.fit_transform(DATAFRAME_MISS.copy()), columns=_column_names)
     
-    _INPUT_RMSE_MEAN = mse(DATAFRAME_ORIGINAL, _DATAFRAME_MEAN_IMPUTE, squared=False)
+    _mean_end_sample_time = time.time() - _mean_start_sample_time
+
     
-    # median imputation
+    """
+        # median imputation
+    """
+    _median_start_sample_time = time.time()
+    
     _median_imp = SimpleImputer(strategy="median")
     _DATAFRAME_MEDIAN_IMPUTE = pd.DataFrame(_median_imp.fit_transform(DATAFRAME_MISS.copy()), columns=_column_names)
 
-    _INPUT_RMSE_MEDIAN = mse(DATAFRAME_ORIGINAL, _DATAFRAME_MEDIAN_IMPUTE, squared=False)
+    _median_end_sample_time = time.time() - _median_start_sample_time
 
-    # mode imputation
+    
+    """
+        # mode imputation
+    """
+    _mode_start_sample_time = time.time()
+    
     _mode_imp = SimpleImputer(strategy="most_frequent")
     _DATAFRAME_MODE_IMPUTE = pd.DataFrame(_mode_imp.fit_transform(DATAFRAME_MISS.copy()), columns=_column_names)
     
-    _INPUT_RMSE_MODE = mse(DATAFRAME_ORIGINAL, _DATAFRAME_MODE_IMPUTE, squared=False)
+    _mode_end_sample_time = time.time() - _mode_start_sample_time
     
-    # knn imputation
+
+    """
+        # knn imputation
+    """
+    _knn_start_sample_time = time.time()
+    
     _knn_imp = KNNImputer(n_neighbors=5)
-    _DATAFRAME_KNN_IMPUTE = pd.DataFrame(_knn_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1])
+    _DATAFRAME_KNN_IMPUTE = pd.DataFrame(_knn_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1], index=X_original.index)
     _DATAFRAME_KNN_IMPUTE = _DATAFRAME_KNN_IMPUTE.merge(DATAFRAME_ORIGINAL["Outcome"], left_index=True, right_index=True)
     
-    _INPUT_RMSE_KNNIMP = mse(DATAFRAME_ORIGINAL, _DATAFRAME_KNN_IMPUTE, squared=False)
-
+    _knn_end_sample_time = time.time() - _knn_start_sample_time
     
-    # multiple imputation technique --> MICE Algo.
+    
+    """
+        # multiple imputation technique --> MICE Algo.
+    """
+    _iter_start_sample_time = time.time()
+    
     _iter_imp = IterativeImputer(max_iter=10, random_state=_RANDOM_STATE)
-    _DATAFRAME_ITER_IMPUTE = pd.DataFrame(_iter_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1])
+    _DATAFRAME_ITER_IMPUTE = pd.DataFrame(_iter_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1], index=X_original.index)
     _DATAFRAME_ITER_IMPUTE = _DATAFRAME_ITER_IMPUTE.merge(DATAFRAME_ORIGINAL["Outcome"], left_index=True, right_index=True)
 
-    _INPUT_RMSE_ITERIMP = mse(DATAFRAME_ORIGINAL, _DATAFRAME_ITER_IMPUTE, squared=False)
-
+    _iter_end_sample_time = time.time() - _iter_start_sample_time
+    
+    time.sleep(1)
+    
+    
 
 
     _DATAFRAME_IMPUTE_COLLECTION = {"MEAN_IMPUTE" : _DATAFRAME_MEAN_IMPUTE,
@@ -374,9 +436,19 @@ if _IMPUTE:
                                     "KNN_IMPUTE" : _DATAFRAME_KNN_IMPUTE,
                                     "ITER_IMPUTE" : _DATAFRAME_ITER_IMPUTE}
     
-
-
+    _IMPUTE_TIMES = {"MEAN_IMPUTE" : _mean_end_sample_time,
+                     "MEDIAN_IMPUTE" : _median_end_sample_time,
+                     "MODE_IMPUTE" : _mode_end_sample_time,
+                     "KNN_IMPUTE" : _knn_end_sample_time,
+                     "ITER_IMPUTE" : _iter_end_sample_time}
     
+    _IMPUTE_RMSE = {"MEAN_IMPUTE" : mse(DATAFRAME_ORIGINAL, _DATAFRAME_MEAN_IMPUTE, squared=False),
+                     "MEDIAN_IMPUTE" : mse(DATAFRAME_ORIGINAL, _DATAFRAME_MEDIAN_IMPUTE, squared=False),
+                     "MODE_IMPUTE" : mse(DATAFRAME_ORIGINAL, _DATAFRAME_MODE_IMPUTE, squared=False),
+                     "KNN_IMPUTE" :  mse(DATAFRAME_ORIGINAL, _DATAFRAME_KNN_IMPUTE, squared=False),
+                     "ITER_IMPUTE" : mse(DATAFRAME_ORIGINAL, _DATAFRAME_ITER_IMPUTE, squared=False)}
+    
+
     print("\nPredictions for dataset with uncertainties and imputed values:")
     
     impute_metrics = {}
@@ -388,12 +460,25 @@ if _IMPUTE:
         # create input frame for model predictions
         _X_impute = _DATAFRAME_IMPUTE_COLLECTION[_frame_key].iloc[:, 0:-1]
          
-        # get results of prediction 
+        # get results of prediction
+        
+        _start_pred_time = time.time()
         _y_impute_hat = model.predict(_X_impute).flatten()
+        _end_pred_time = time.time() - _start_pred_time
+        
+        time.sleep(1)
+        
         _y_impute_hat_labels = (_y_impute_hat>0.5).astype("int32")             
         
-        impute_metrics[_frame_key] = {"y_hat" : _y_impute_hat,
+        impute_metrics[_frame_key] = {"input_rmse" : _IMPUTE_RMSE[_frame_key],
+                                      "y_hat" : _y_impute_hat,
                                       "y_hat_labels" : _y_impute_hat_labels,
+                                      "rmse_to_model_prediction" : mse(original_metrics["y_hat"], _y_impute_hat),
+                                      "rmse_to_original_label" : mse(y_original, _y_impute_hat),
+                                      "sample_time" : _IMPUTE_TIMES[_frame_key],
+                                      "pred_time" : _end_pred_time,
+                                      "roc_auc" : roc_auc_score(y_original, _y_impute_hat),
+                                      "prc_auc" : average_precision_score(y_original, _y_impute_hat)
                                       }
         
         
@@ -405,13 +490,29 @@ if _IMPUTE:
        
         
             
-        print(f"\n{_frame_key} Imputed Classification Metrics:")
+            print(f"\n{_frame_key} Imputed Classification Metrics:")
         
-        impute_metrics[_frame_key]["classification_metrics"] = utils.create_metrics(y_original, _y_impute_hat_labels, 
-                                                                                    print_report=True)
- 
+        impute_metrics[_frame_key]["impute//original_metrics"] = utils.create_metrics(y_original, 
+                                                                                      _y_impute_hat_labels, 
+                                                                                      print_report=False)
+
+        
+        impute_metrics[_frame_key]["impute//ori_prediction_metrics"] = utils.create_metrics(original_metrics["y_hat_labels"], 
+                                                                                            _y_impute_hat_labels,  
+                                                                                            print_report=False)
 
 
+
+if _visualize_imputed_predictions:
+    
+    dvis.roc_curves(y_original, impute_metrics)
+    plt.show()       
+      
+    
+    dvis.pre_recall_curve(y_original, impute_metrics)
+    plt.show()       
+        
+    
 
 ##########################################################################################################################
 # experiments module 2 -- col wise simulations ----------> get kde values of dataframe
@@ -516,8 +617,9 @@ if _SIMULATE:
         _DATAFRAME_SIMULATE_ROW = pd.DataFrame(_DATAFRAME_SIMULATE.loc[_row])
         
         # for rmse calculation later on
-        _original_df_mc_row_input = pd.DataFrame(X_original.loc[_row]).copy().transpose()
-        _original_df_mc_row_input = pd.concat([_original_df_mc_row_input] * _SIMULATION_LENGTH, ignore_index=True)
+        _original_df_mc_row_input = pd.DataFrame(DATAFRAME_ORIGINAL.loc[_row]).copy().transpose()
+        _original_df_mc_row_outcome = pd.concat([_original_df_mc_row_input["Outcome"]] * _SIMULATION_LENGTH, ignore_index=True)
+        _original_df_mc_row_input = pd.concat([_original_df_mc_row_input.iloc[:,:-1]] * _SIMULATION_LENGTH, ignore_index=True)
         
         """
             # step 2: find all the attributes with nan values and save to variable as keys for the kde-dictionary
@@ -549,6 +651,7 @@ if _SIMULATE:
         _uncertain_sim_row_metrics = utils.binary_sample_and_predict(model = model, 
                                                                      simulation_row = _DATAFRAME_SIMULATE_ROW,
                                                                      original_input_row = _original_df_mc_row_input,
+                                                                     original_input_row_outcome =_original_df_mc_row_outcome,
                                                                      dataframe_categorical = _DATAFRAME_SIMULATE, 
                                                                      uncertain_attributes = _uncertain_attributes, 
                                                                      
@@ -580,6 +683,7 @@ if _SIMULATE:
         _original_sim_row_metrics = utils.binary_sample_and_predict(model = model, 
                                                                     simulation_row = _DATAFRAME_SIMULATE_ROW,
                                                                     original_input_row = _original_df_mc_row_input,
+                                                                    original_input_row_outcome = _original_df_mc_row_outcome,
                                                                     dataframe_categorical = DATAFRAME_ORIGINAL, 
                                                                     uncertain_attributes = _uncertain_attributes, 
                                                                     
@@ -636,7 +740,7 @@ if _SIMULATE:
             
             
     
-    
+"""    
     # TODO
     sys.exit()
     
@@ -710,7 +814,7 @@ if _SIMULATE:
     
     
     
-    """
+    
         Below: combined Comparisons between the prediction results of Uncertain and Certain KDE simulations
 
     
@@ -768,7 +872,7 @@ if _SIMULATE:
                  kde_kws={"cut":0}, 
                  ax=_axs[1, 1]).set(title=f'Simulation (original_kde) - Miss-Rate: {_MISS_RATE} - Metric: Sim. Mean')
     plt.show()
-    """
+
 
 
 
@@ -868,80 +972,12 @@ if _IMPUTE == True and _SIMULATE == True:
         
         
         
-        DATAFRAME_COMBINED_LABELS = pd.DataFrame(data={"Original_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"],
-                                                       
-                                                       "0_Predicted_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"],
-                                                       "0_Predicted_Label_Corr_Asign" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"]),
-                                                       
-                                                       "1_Imp-Mean_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean_Label"],
-                                                       "1_Imp-Mean_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean_Label"]),
-                                                       "1_Imp-Mean_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean_Label"]),
-                                                       
-                                                       "1_Imp-Mode_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode_Label"],
-                                                       "1_Imp-Mode_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode_Label"]),
-                                                       "1_Imp-Mode_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode_Label"]),
-                                                       
-                                                       "1_Imp-Median_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median_Label"],
-                                                       "1_Imp-Median_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median_Label"]),
-                                                       "1_Imp-Median_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median_Label"]),
-                                                       
-                                                       "1_Imp-KNNIMP_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNIMP_Label"],
-                                                       "1_Imp-KNNIMP_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNIMP_Label"]),
-                                                       "1_Imp-KNNIMP_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNIMP_Label"]),
-                                                       
-                                                       "1_Imp-ITERIMP_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-ITERIMP_Label"],
-                                                       "1_Imp-ITERIMP_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-ITERIMP_Label"]),
-                                                       "1_Imp-ITERIMP_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-ITERIMP_Label"]),
-                                                       
-                                                       "2_Orig_Sim_Mean_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean_Label"],
-                                                       "2_Orig_Sim_Mean_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean_Label"]),
-                                                       "2_Orig_Sim_Mean_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean_Label"]),
-                                                       
-                                                       "2_Orig_Sim_Max_Density_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density_Label"],
-                                                       "2_Orig_Sim_Max_Density_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density_Label"]),
-                                                       "2_Orig_Sim_Max_Density_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density_Label"]),
-                                                       
-                                                       "3_Uncert_Sim_Mean_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean_Label"],
-                                                       "3_Uncert_Sim_Mean_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean_Label"]),
-                                                       "3_Uncert_Sim_Mean_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean_Label"]),
-                                                       
-                                                       "3_Uncert_Sim_Max_Density_Label" : DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Max_Density_Label"],
-                                                       "3_Uncert_Sim_Max_Density_Label_Corr_Asign_Original" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Max_Density_Label"]),
-                                                       "3_Uncert_Sim_Max_Density_Label_Corr_Asign_Predicted" : (DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"] == DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Max_Density_Label"]),
-                                                       }).transpose()
+
         
         
 
     
-        DATAFRAME_COMBINED_LABELS_ANALYSIS = pd.Series(data={"Correct Orig. labels assigned by 0_Predicted_Label": DATAFRAME_COMBINED_LABELS.loc["0_Predicted_Label_Corr_Asign"].value_counts(True)[0],
-                                                             
-                                                             "Correct Orig. labels assigned by 1_Imp-Mean_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-Mean_Label_Corr_Asign_Original"].value_counts(True)[0],
-                                                             "Correct Pred. labels assigned by 1_Imp-Mean_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-Mean_Label_Corr_Asign_Predicted"].value_counts(True)[0],
-                                                             
-                                                             "Correct Orig. labels assigned by 1_Imp-Mode_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-Mode_Label_Corr_Asign_Original"].value_counts(True)[0],
-                                                             "Correct Pred. labels assigned by 1_Imp-Mode_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-Mode_Label_Corr_Asign_Predicted"].value_counts(True)[0],
-                                                             
-                                                             "Correct Orig. labels assigned by 1_Imp-Median_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-Median_Label_Corr_Asign_Original"].value_counts(True)[0],
-                                                             "Correct Pred. labels assigned by 1_Imp-Median_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-Median_Label_Corr_Asign_Predicted"].value_counts(True)[0],
-                                                             
-                                                             "Correct Orig. labels assigned by 1_Imp-KNNIMP_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-KNNIMP_Label_Corr_Asign_Original"].value_counts(True)[0],
-                                                             "Correct Pred. labels assigned by 1_Imp-KNNIMP_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-KNNIMP_Label_Corr_Asign_Predicted"].value_counts(True)[0],                          
-                                                             
-                                                             "Correct Orig. labels assigned by 1_Imp-ITERIMP_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-ITERIMP_Label_Corr_Asign_Original"].value_counts(True)[0],
-                                                             "Correct Pred. labels assigned by 1_Imp-ITERIMP_Label": DATAFRAME_COMBINED_LABELS.loc["1_Imp-ITERIMP_Label_Corr_Asign_Predicted"].value_counts(True)[0],   
-                                                             
-                                                             "Correct Orig. labels assigned by 2_Orig_Sim_Mean_Label": DATAFRAME_COMBINED_LABELS.loc["2_Orig_Sim_Mean_Label_Corr_Asign_Original"].value_counts(True)[0],
-                                                             "Correct Pred. labels assigned by 2_Orig_Sim_Mean_Label": DATAFRAME_COMBINED_LABELS.loc["2_Orig_Sim_Mean_Label_Corr_Asign_Predicted"].value_counts(True)[0],
-                                                             
-                                                             "Correct Orig. labels assigned by 2_Orig_Sim_Max_Density_Label": DATAFRAME_COMBINED_LABELS.loc["2_Orig_Sim_Max_Density_Label_Corr_Asign_Original"].value_counts(True)[0],
-                                                             "Correct Pred. labels assigned by 2_Orig_Sim_Max_Density_Label": DATAFRAME_COMBINED_LABELS.loc["2_Orig_Sim_Max_Density_Label_Corr_Asign_Predicted"].value_counts(True)[0],
-                                                             
-                                                             "Correct Orig. labels assigned by 3_Uncert_Sim_Mean_Label": DATAFRAME_COMBINED_LABELS.loc["3_Uncert_Sim_Mean_Label_Corr_Asign_Original"].value_counts(True)[0],
-                                                             "Correct Pred. labels assigned by 3_Uncert_Sim_Mean_Label": DATAFRAME_COMBINED_LABELS.loc["3_Uncert_Sim_Mean_Label_Corr_Asign_Predicted"].value_counts(True)[0],
-                                                             
-                                                             "Correct Orig. labels assigned by 3_Uncert_Sim_Max_Density_Label": DATAFRAME_COMBINED_LABELS.loc["3_Uncert_Sim_Max_Density_Label_Corr_Asign_Original"].value_counts(True)[0],
-                                                             "Correct Pred. labels assigned by 3_Uncert_Sim_Max_Density_Label": DATAFRAME_COMBINED_LABELS.loc["3_Uncert_Sim_Max_Density_Label_Corr_Asign_Predicted"].value_counts(True)[0],
-                                                             })
+
     
 
         
@@ -1010,3 +1046,4 @@ if _load_simulated_results:
 
 
 
+"""

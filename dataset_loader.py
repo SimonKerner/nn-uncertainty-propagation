@@ -8,6 +8,7 @@ Created on Thu Sep 28 11:38:28 2023
 
 import os
 import pickle
+import sys
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 from pathlib import Path
@@ -93,7 +94,7 @@ def load_climate_simulation():
     
     path = get_dataset_path()
     
-    with open(os.path.join(datasetpath, "climate_simulation" + ".dat"), 'rb') as df:
+    with open(os.path.join(path, "climate_simulation" + ".dat"), 'rb') as df:
         df = pd.read_table(df, sep="\s+", engine='python', header = 0)
     
     # drop the first two elements of the dataset -> not relevant
@@ -154,36 +155,43 @@ def load_dataframe(dataframe_name, standardize_data):
 
 
 
-def create_miss_dataframe(df_name, dataframe, path, miss_rate, delete_mode, random_seed):
+def create_miss_dataframe(df_name, dataframe, prefix, path, miss_rate, delete_mode, random_seed):
     
-    df_miss = add_missing_values(dataframe, delete_mode =delete_mode, miss_rate=miss_rate, random_seed=random_seed) 
+    df_miss = add_missing_values(dataframe, delete_mode=delete_mode, miss_rate=miss_rate, random_seed=random_seed) 
 
     # save DATAFRAME_MISS to pickle.dat 
-    df_miss.to_pickle(os.path.join(path, "miss_frames", df_name, df_name + "_miss_rate_" + str(miss_rate) + ".dat"))
+    df_miss.to_pickle(os.path.join(path, "miss_frames", df_name, df_name + prefix + "_miss_rate_" + str(miss_rate) + ".dat"))
 
     return df_miss
 
 
 
 
-def load_miss_dataframe(df_name, dataframe, miss_rate, delete_mode, random_seed, load_dataframe_miss, create_dataframe_miss):
+def load_miss_dataframe(df_name, dataframe, miss_rate, delete_mode, random_seed, load_dataframe_miss, create_dataframe_miss, simulate_test_set):
     
     
     path = get_dataset_path()
     
     
+    if simulate_test_set == True: prefix = "_test"
+    elif simulate_test_set == False: prefix = "_train+test"
+    else: 
+        print("Error in loading or creating miss_frame!")
+        sys.exit()
+    
+    
     # second part is a statement to check if a dataframe really exists and if not, a new one will be created even if load is true
-    if load_dataframe_miss and Path(os.path.join(path, "miss_frames", df_name, df_name + "_miss_rate_" + str(miss_rate) + ".dat")).exists() and create_dataframe_miss==False:
+    if load_dataframe_miss and Path(os.path.join(path, "miss_frames", df_name, df_name + prefix + "_miss_rate_" + str(miss_rate) + ".dat")).exists() and create_dataframe_miss==False:
       
         """
             already created DATAFRAME_MISS will be loaded
         """
 
-        df_miss = pd.read_pickle(os.path.join(path, "miss_frames", df_name, df_name + "_miss_rate_" + str(miss_rate) + ".dat"))    
+        df_miss = pd.read_pickle(os.path.join(path, "miss_frames", df_name, df_name + prefix + "_miss_rate_" + str(miss_rate) + ".dat"))    
         
         
         
-    elif create_dataframe_miss or Path(os.path.join(path, "miss_frames", df_name, df_name + "_miss_rate_" + str(miss_rate) + ".dat")).exists() == False:
+    elif create_dataframe_miss or Path(os.path.join(path, "miss_frames", df_name, df_name + prefix + "_miss_rate_" + str(miss_rate) + ".dat")).exists() == False:
         
         """
             a new DATAFRAME_MISS will be created and saved
@@ -193,7 +201,7 @@ def load_miss_dataframe(df_name, dataframe, miss_rate, delete_mode, random_seed,
         if Path(os.path.join(path, "miss_frames", df_name)).exists() == False:
             os.mkdir(os.path.join(path, "miss_frames", df_name)) 
         
-        df_miss = create_miss_dataframe(df_name, dataframe, path, miss_rate, delete_mode, random_seed)
+        df_miss = create_miss_dataframe(df_name, dataframe, prefix, path, miss_rate, delete_mode, random_seed)
 
         
 

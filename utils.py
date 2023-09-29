@@ -28,7 +28,9 @@ import scipy.stats as stats
 from scipy import interpolate
 from scipy.special import ndtr
 
+from sklearn import metrics
 from sklearn.metrics import mean_squared_error as mse
+
 
 ##########################################################################################################################
 # Define helper functions
@@ -387,7 +389,9 @@ def generate_simulation_inputs(simulation_row, simulation_length, uncertain_attr
     return dataframe_distribution
 
 
-def create_pred_simulation_metrics(y_simulation_hat, bw_method, x_axis, normalize):
+
+
+def create_pred_simulation_metrics(y_simulation_hat, original_input_row_outcome, bw_method, x_axis, normalize):
     
         # simulation non-parametric statistics
         simulation_result_kde = stats.gaussian_kde(y_simulation_hat, bw_method=bw_method, 
@@ -401,35 +405,48 @@ def create_pred_simulation_metrics(y_simulation_hat, bw_method, x_axis, normaliz
         
         
         row_metrics = {"y_hat" : y_simulation_hat,
-                                      "y_hat_labels" : (y_simulation_hat>0.5).astype("int32"),
-                                      "mean" : y_simulation_hat.mean(),
-                                      "median" : np.median(y_simulation_hat),
-                                      "mode" : x_axis[np.argmax(kde_pdfs)],
-                                      "std" : y_simulation_hat.std(),
-                                      "pdfs" : kde_pdfs,
-                                      "lower_probability" : round(simulation_result_kde.integrate_box_1d(float("-inf"), 0.5), 8),
-                                      "upper_probability" : round(simulation_result_kde.integrate_box_1d(0.5, float("inf")), 8),
-                                      #"input_rmse" : _original_sim_input_rmse
-                                      }
+                       "y_hat_labels" : (y_simulation_hat>0.5).astype("int32"),
+                       "mean" : y_simulation_hat.mean(),
+                       "median" : np.median(y_simulation_hat),
+                       "mode" : x_axis[np.argmax(kde_pdfs)],
+                       "min" : min(y_simulation_hat),
+                       "max" : max(y_simulation_hat),
+                       "std" : y_simulation_hat.std(),
+                       "kurtosis" : stats.kurtosis(y_simulation_hat),
+                       "skewness" : stats.skew(y_simulation_hat),
+                       "pdfs" : kde_pdfs,
+                       "lower_probability" : round(simulation_result_kde.integrate_box_1d(float("-inf"), 0.5), 8),
+                       "upper_probability" : round(simulation_result_kde.integrate_box_1d(0.5, float("inf")), 8),
+                       }
         
-        row_metrics["mean_label"] = (row_metrics["mean"]>0.5).astype("int32")
-        row_metrics["median_label"] = (row_metrics["median"]>0.5).astype("int32")
-        row_metrics["mode_label"] = (row_metrics["mode"]>0.5).astype("int32")
+        #row_metrics["mean_label"] = (row_metrics["mean"]>0.5).astype("int32")
+        #row_metrics["median_label"] = (row_metrics["median"]>0.5).astype("int32")
+        #row_metrics["mode_label"] = (row_metrics["mode"]>0.5).astype("int32")
+        
         row_metrics["probability_label"] = ((row_metrics["upper_probability"])>0.5).astype("int32")
         row_metrics["probability_sum"] = round(row_metrics["lower_probability"] + row_metrics["upper_probability"], 2)
-   
+        
+        row_metrics["accuracy"] = metrics.accuracy_score(original_input_row_outcome, row_metrics["y_hat_labels"])
+        row_metrics["f1_macro"] = metrics.f1_score(original_input_row_outcome, row_metrics["y_hat_labels"], average="macro")
+        row_metrics["precision_macro"] = metrics.precision_score(original_input_row_outcome, row_metrics["y_hat_labels"], average="macro")
+        row_metrics["recall_macro"] = metrics.recall_score(original_input_row_outcome, row_metrics["y_hat_labels"], average="macro")
+        
+        row_metrics["rmse_pred_error"] = mse(original_input_row_outcome, y_simulation_hat, squared=False)
+        
+        #row_metrics["metrics"] = create_metrics(original_input_row_outcome, row_metrics["y_hat_labels"], print_report=False)
+        
         return row_metrics
     
+
     
-    
-def binary_sample_and_predict(model, simulation_row, original_input_row, dataframe_categorical, uncertain_attributes, 
-                              standardize_data, datatype_map, column_names, simulation_length, random_state, 
-                              monte_carlo, kde_collection, normalize_kde, bw_method, x_axis,
-                              latin_hypercube, lhs_mode, visualize_lhs_samples, lhs_prefix):
+def binary_sample_and_predict(model, simulation_row, original_input_row, original_input_row_outcome, dataframe_categorical, 
+                              uncertain_attributes, standardize_data, datatype_map, column_names, simulation_length, random_state, 
+                              monte_carlo, kde_collection, normalize_kde, bw_method, x_axis,  latin_hypercube, lhs_mode, 
+                              visualize_lhs_samples, lhs_prefix):
     
         # PART 1: SAMPLE FROM DISTRIBUTION
     
-        _start_uncert_sample_time = time.time()
+        start_sample_time = time.time()
         
         INPUT_SAMPLE_COLLECTION = generate_simulation_sample_collection(uncertain_attributes = uncertain_attributes, 
                                                                              dataframe_categorical = dataframe_categorical, 
@@ -453,26 +470,27 @@ def binary_sample_and_predict(model, simulation_row, original_input_row, datafra
                                                          uncertain_attributes = uncertain_attributes, 
                                                          sample_collection = INPUT_SAMPLE_COLLECTION).iloc[:,:-1]
         
-        _end_uncert_sample_time = time.time() - _start_uncert_sample_time
+        end_sample_time = time.time() - start_sample_time
 
 
 
         # PART 3: GET PREDICTION AND METRICS        
 
-        _start_uncert_pred_time = time.time()
+        start_pred_time = time.time()
         
         Y_SIMULATION_HAT = model.predict(_X_SIMULATION_INPUT, verbose=0).flatten()
         
-        _end_uncert_pred_time = time.time() - _start_uncert_pred_time
+        end_pred_time = time.time() - start_pred_time
         
         
         sim_row_metrics = create_pred_simulation_metrics(y_simulation_hat=Y_SIMULATION_HAT, 
+                                                         original_input_row_outcome=original_input_row_outcome,
                                                          bw_method=bw_method, 
                                                          x_axis=x_axis, 
                                                          normalize=normalize_kde)
         
         sim_row_metrics["input_rmse"] = mse(original_input_row, _X_SIMULATION_INPUT, squared=False)  
-        sim_row_metrics["sample_time"] = _end_uncert_sample_time
-        sim_row_metrics["prediction_time"] = _end_uncert_pred_time
+        sim_row_metrics["sample_time"] = end_sample_time
+        sim_row_metrics["prediction_time"] = end_pred_time
         
         return sim_row_metrics

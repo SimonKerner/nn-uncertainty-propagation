@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import sys
 import numpy as np
+from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve, average_precision_score
 
 
 def plot_dataframe(dataframe, column_names, title):
@@ -24,7 +25,79 @@ def plot_dataframe(dataframe, column_names, title):
     plt.show()
     
     return hist
+
+
+def roc_curves(y_original, prediction_metric):
     
+    # @ https://ethen8181.github.io/machine-learning/model_selection/auc/auc.html
+
+    
+    for key in prediction_metric:
+        
+        if type(key) == dict:
+            get = key["y_hat"]
+            key = "Original"
+            
+        elif type(key) == str:
+            get = prediction_metric[key]["y_hat"]
+
+        fpr, tpr, thresholds = roc_curve(y_original, get)
+
+        # AUC score that summarizes the ROC curve
+        roc_auc = roc_auc_score(y_original, get)
+        
+        plt.plot(fpr, tpr, lw = 2, label = key + ' ROC AUC: {:.2f}'.format(roc_auc))
+        
+    plt.plot([0, 1], [0, 1],
+             linestyle = '--',
+             color = (0.6, 0.6, 0.6),
+             label = 'random guessing')
+    plt.plot([0, 0, 1], [0, 1, 1],
+             linestyle = ':',
+             color = 'black', 
+             label = 'perfect performance')
+        
+    plt.xlim([-0.05, 1.05])
+    plt.ylim([-0.05, 1.05])
+    plt.xlabel('false positive rate')
+    plt.ylabel('true positive rate')
+    plt.title('Receiver Operator Characteristic')
+    
+        
+    plt.legend(loc = "lower right", fontsize=9)
+    plt.tight_layout()   
+    plt.show()
+
+
+
+def pre_recall_curve(y_original, prediction_metric):
+    
+    # @ https://ethen8181.github.io/machine-learning/model_selection/auc/auc.html
+    
+    for key in prediction_metric:
+        
+        if type(key) == dict:
+            get = key["y_hat"]
+            key = "Original"
+            
+        elif type(key) == str:
+            get = prediction_metric[key]["y_hat"]
+        
+        precision, recall, thresholds = precision_recall_curve(
+        y_original, get)
+        
+        # AUC score that summarizes the precision recall curve
+        avg_precision = average_precision_score(y_original, get)
+        
+        label = key + ' PRC AUC: {:.2f}'.format(avg_precision)
+        plt.plot(recall, precision, lw = 2, label = label)
+        
+    plt.xlabel('Recall')  
+    plt.ylabel('Precision')  
+    plt.title('Precision Recall Curve')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
 
 
     
@@ -183,7 +256,7 @@ def column_wise_kde_plot(data1, data2, name1, name2, column_names, miss_rate, si
                           name2 : data2[column]}, 
                     common_grid=True, 
                     bw_method=bw_method)
-        plt.xlabel(_column)
+        plt.xlabel(column)
         plt.ylabel('Density')
         plt.title(f'KDE Plot of Column: {column} - Miss-Rate: {miss_rate} - Method: {sim_method}')
         plt.tight_layout()
