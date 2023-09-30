@@ -5,6 +5,7 @@ __pycache__/
 
 # project folders
 sim_results/
+images/
 
 # C extensions
 *.so
