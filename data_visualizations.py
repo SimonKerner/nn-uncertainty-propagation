@@ -9,8 +9,19 @@ Created on Thu Sep 28 12:50:40 2023
 import matplotlib.pyplot as plt
 import seaborn as sns
 import sys
+import os
 import numpy as np
 from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve, average_precision_score
+
+
+image_path = os.path.join(os.getcwd(), 'images')
+
+
+def remove_images(image_path=image_path):
+    
+    remove = [os.remove(os.path.join(image_path, 'simulation_rows_hist', fname)) for fname in os.listdir(os.path.join(image_path, 'simulation_rows_hist')) if fname.endswith('.png')]
+    remove = [os.remove(fname) for fname in os.listdir(os.path.join(image_path, 'simulation_rows_kde')) if fname.endswith('.png')]
+    remove = [os.remove(fname) for fname in os.listdir(image_path) if fname.endswith('.png')]
 
 
 def plot_dataframe(dataframe, column_names, title):
@@ -22,15 +33,17 @@ def plot_dataframe(dataframe, column_names, title):
                           density=False, sharey=False, sharex=False)
     plt.title(title)
     plt.tight_layout()
+    plt.savefig(os.path.join(image_path, title))
     plt.show()
     
     return hist
 
 
-def roc_curves(y_original, prediction_metric):
+def roc_curves(y_original, prediction_metric, save_prefix):
     
     # @ https://ethen8181.github.io/machine-learning/model_selection/auc/auc.html
 
+    title = 'Receiver Operator Characteristic'
     
     for key in prediction_metric:
         
@@ -61,18 +74,21 @@ def roc_curves(y_original, prediction_metric):
     plt.ylim([-0.05, 1.05])
     plt.xlabel('false positive rate')
     plt.ylabel('true positive rate')
-    plt.title('Receiver Operator Characteristic')
+    plt.title(title)
     
         
     plt.legend(loc = "lower right", fontsize=9)
-    plt.tight_layout()   
+    plt.tight_layout()  
+    plt.savefig(os.path.join(image_path, save_prefix + "_" + title))
     plt.show()
 
 
 
-def pre_recall_curve(y_original, prediction_metric):
+def pre_recall_curve(y_original, prediction_metric, save_prefix):
     
     # @ https://ethen8181.github.io/machine-learning/model_selection/auc/auc.html
+    
+    title = 'Precision Recall Curve'
     
     for key in prediction_metric:
         
@@ -94,9 +110,10 @@ def pre_recall_curve(y_original, prediction_metric):
         
     plt.xlabel('Recall')  
     plt.ylabel('Precision')  
-    plt.title('Precision Recall Curve')
+    plt.title(title)
     plt.legend()
     plt.tight_layout()
+    plt.savefig(os.path.join(image_path, save_prefix + "_" + title))
     plt.show()
 
 
@@ -117,6 +134,7 @@ def plot_binary_predictions(y_pred, y_labels, title):
     plt.ylabel('Frequency')
     plt.title(title)
     plt.tight_layout()
+    plt.savefig(os.path.join(image_path, title))
     plt.show()
     
     
@@ -129,6 +147,7 @@ def plot_frame_comparison(data, title):
     plt.ylabel('Density')
     plt.title(title)
     plt.tight_layout()
+    plt.savefig(os.path.join(image_path, title))
     plt.show()
     
     
@@ -241,6 +260,7 @@ def plot_history(history, smooth=False, log_scale=False, model_type=None):
         idx += 1
 
     plt.tight_layout()
+    plt.savefig(os.path.join(image_path, "Model Evaluation"))
     plt.show()
     
     
@@ -250,6 +270,8 @@ def column_wise_kde_plot(data1, data2, name1, name2, column_names, miss_rate, si
     
     for column in column_names:
         
+        title = f'KDE Plot of Column: {column} - Miss-Rate: {miss_rate} - Method: {sim_method}'
+        
         # KDE Plot of column without missing data
         plt.figure(figsize=(8, 4))
         sns.kdeplot(data={name1 : data1[column], 
@@ -258,8 +280,9 @@ def column_wise_kde_plot(data1, data2, name1, name2, column_names, miss_rate, si
                     bw_method=bw_method)
         plt.xlabel(column)
         plt.ylabel('Density')
-        plt.title(f'KDE Plot of Column: {column} - Miss-Rate: {miss_rate} - Method: {sim_method}')
+        plt.title(title)
         plt.tight_layout()
+        plt.savefig(os.path.join(image_path, "single_kde_attributes", title))
         plt.show()
         
         
@@ -286,6 +309,7 @@ def combined_col_kde_plot(data1, data2, name1, name2, plt_shape, column_names, b
             column_count += 1
         
     plt.tight_layout(pad=1)
+    plt.savefig(os.path.join(image_path, "Combined KDE Plot"))
     plt.show()
     
     
@@ -394,6 +418,9 @@ def simulation_hist_plot(simulation_row_results, y_original, original_metrics, p
     
     _axs[1].add_artist(_legend1)
     _axs[1].add_artist(_legend2)
+    
+    plt.savefig(os.path.join(image_path, "simulation_rows_hist", 'Simulaton Hist Plot - Row_' + str(row)))
+    
     plt.show()
     
     
@@ -481,6 +508,9 @@ def simulation_kde_plot(x_axis, simulation_row_results, y_original, original_met
     plt.xlabel('Sigmoid Activation')
     plt.ylabel('Density')
     plt.ylim([0, max(max(uncertain_row["kde_pdf_y_axis"]), max(original_row["kde_pdf_y_axis"])) + 0.1])
+    
+    plt.savefig(os.path.join(image_path, "simulation_rows_kde", 'Simulaton Hist Plot - Row_' + str(row)))
+    
     plt.show()
     
     

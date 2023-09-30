@@ -64,7 +64,6 @@ from scipy.special import ndtr
 
 # set path to different folders
 
-#image_path = os.path.join(os.getcwd(), 'images')
 _results_path = os.path.join(os.getcwd(), 'sim_results')
 
 
@@ -156,6 +155,9 @@ _load_simulated_results = False
 _load_results_id = 0
 
 
+# revove old images in image folder
+dvis.remove_images()
+
 ##########################################################################################################################
 """
         # load original datasets with full data
@@ -176,7 +178,7 @@ _unique_outcomes = len(DATAFRAME_ORIGINAL.Outcome.unique())
 if _visiualize_data:
     
     # Plotting combined distribution using histograms
-    _hist = dvis.plot_dataframe(DATAFRAME_ORIGINAL, _column_names, "Dataframe Orig. without missing data")
+    _hist = dvis.plot_dataframe(DATAFRAME_ORIGINAL, _column_names, "Dataframe Original without missing data")
 
     
     """
@@ -298,11 +300,11 @@ if _visualize_original_predictions:
 
 if _visualize_imputed_predictions:
     
-    dvis.roc_curves(y_original, [original_metrics])
+    dvis.roc_curves(y_original, [original_metrics], "Model")
     plt.show()       
       
     
-    dvis.pre_recall_curve(y_original, [original_metrics])
+    dvis.pre_recall_curve(y_original, [original_metrics], "Model")
     plt.show()     
 
     
@@ -326,7 +328,7 @@ DATAFRAME_MISS = load_miss_dataframe(_dataset, DATAFRAME_ORIGINAL, _MISS_RATE, _
 if _visiualize_data:
       
     dvis.plot_dataframe(DATAFRAME_MISS, _column_names, 
-                        'Input without missing data')
+                        'Input with missing data')
     
     dvis.plot_frame_comparison(data={"DATAFRAME_ORIGINAL" : np.array(DATAFRAME_ORIGINAL.iloc[:,:-1]).flatten(), 
                                      "DATAFRAME_MISS" : np.array(DATAFRAME_MISS.iloc[:,:-1]).flatten()},
@@ -480,7 +482,7 @@ if _IMPUTE:
             
             # visualize predictions
             dvis.plot_binary_predictions(_y_impute_hat, _y_impute_hat_labels,
-                                         f'Uncertain imputated dataframe combined output - Miss-Rate: {_MISS_RATE} - Impute-Method: {_frame_key.replace("_IMPUTE", "")}')
+                                         f'Uncertain imputated dataframe combined output - Miss-Rate {_MISS_RATE} - Impute-Method {_frame_key.replace("_IMPUTE", "")}')
        
         
             
@@ -493,11 +495,11 @@ if _IMPUTE:
 
     if _visualize_imputed_predictions:
         
-        dvis.roc_curves(y_original, impute_metrics)
+        dvis.roc_curves(y_original, impute_metrics, "Imputation")
         plt.show()       
           
         
-        dvis.pre_recall_curve(y_original, impute_metrics)
+        dvis.pre_recall_curve(y_original, impute_metrics, "Imputation")
         plt.show()       
         
     
@@ -802,11 +804,11 @@ if _SIMULATE:
     print('\n\nSimulation execution time:', _main_elapsed_time)
 
     
-    print('\n\nCreated checkpoint before postprocessing!')
+    #print('\n\nCreated checkpoint before postprocessing!')
     # checkpoint:
-    _results_file_name = os.path.join(_results_path, "postprocess_checkpoint_"+_dataset + "_" + str(_MISS_RATE) + "_" + str(_SIMULATION_RANGE))
+    #_results_file_name = os.path.join(_results_path, "postprocess_checkpoint_"+_dataset + "_" + str(_MISS_RATE) + "_" + str(_SIMULATION_RANGE))
     
-    pickle.dump({"SIMULATION_ROW_RESULTS" : SIMULATION_ROW_RESULTS}, open(_results_file_name, "wb"))
+    #pickle.dump({"SIMULATION_ROW_RESULTS" : SIMULATION_ROW_RESULTS}, open(_results_file_name, "wb"))
 
     
     
@@ -822,7 +824,7 @@ if _SIMULATE:
                                                                                           _SIMULATION_RANGE, _PRED_BANDWIDTH, _normalize_kde)
     
     _postprocess_time = time.strftime("%H:%M:%S", time.gmtime(time.time() - _postprocess_start_time))  
-    print('\n\Postprocess execution time:', _main_elapsed_time) 
+    print('\nPostprocess execution time:', _main_elapsed_time) 
     
     
     
@@ -836,7 +838,7 @@ if _SIMULATE:
             
             # get last item of SIMULATION_ROW_RESULTS list and plot results
             dvis.simulation_hist_plot(SIMULATION_ROW_RESULTS, y_original, original_metrics, plotmode="autosearch", row=_row)
-        
+            
             dvis.simulation_kde_plot(_x_axis, SIMULATION_ROW_RESULTS, y_original, original_metrics, impute_metrics, plotmode="autosearch", row=_row)
     
         

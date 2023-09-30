@@ -13,7 +13,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 import pandas as pd
-
+from tqdm import tqdm
 import numpy as np
 import random
 
@@ -546,6 +546,8 @@ def calculate_simulation_results(DATAFRAME_ORIGINAL, SIMULATION_ROW_RESULTS, _SI
 
     mean_values = {}
 
+    print("    --Postprocess Stage 1\n")
+
     # change shape of original rows to equal the length of SIMULATION_LENGTH
     original_rows = [DATAFRAME_ORIGINAL.loc[row] for row in DATAFRAME_ORIGINAL.iloc[_SIMULATION_RANGE].index]
     
@@ -555,7 +557,7 @@ def calculate_simulation_results(DATAFRAME_ORIGINAL, SIMULATION_ROW_RESULTS, _SI
     original_mc_style_outcome = [[row["Outcome"]] * _SIMULATION_LENGTH for row in original_rows]
     
     
-    for prefix in ["Original", "Uncertain"]: 
+    for prefix in tqdm(["Original", "Uncertain"]): 
 
         row_wise_accuracy = [accuracy_score(original_mc_style_outcome[index], sim[prefix+"_Simulation"]["y_hat_labels"]) for index, sim in enumerate(SIMULATION_ROW_RESULTS)]
         row_wise_accuracy = pd.Series(row_wise_accuracy, index=_SIMULATION_RANGE)
@@ -577,9 +579,9 @@ def calculate_simulation_results(DATAFRAME_ORIGINAL, SIMULATION_ROW_RESULTS, _SI
     del original_mc_style_outcome, original_mc_style_input
     del input_rmse, row_wise_accuracy, original_rows
 
+    print("\n    --Postprocess Stage 2\n")
 
-
-    for row in SIMULATION_ROW_RESULTS:
+    for row in tqdm(SIMULATION_ROW_RESULTS):
         
         for prefix in ["Original", "Uncertain"]: 
             
@@ -613,8 +615,10 @@ def calculate_simulation_results(DATAFRAME_ORIGINAL, SIMULATION_ROW_RESULTS, _SI
         del deletion["Uncertain_Simulation"]["simulation_input"]
     
     
+    print("\n    --Postprocess Stage 3\n")
+    
     # collect all labels
-    for prefix in ["Original", "Uncertain"]: 
+    for prefix in tqdm(["Original", "Uncertain"]): 
         
         mean_values[prefix+"_Mean"] = [results[prefix+"_Simulation"]["mean"] for results in SIMULATION_ROW_RESULTS]
         mean_values[prefix+"_Mode"] = [results[prefix+"_Simulation"]["mode"] for results in SIMULATION_ROW_RESULTS]

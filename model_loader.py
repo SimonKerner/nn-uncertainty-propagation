@@ -117,7 +117,7 @@ def create_binary_model(dataframe_name, X_train, y_train, X_test, y_test, save_m
         model.save(os.path.join(model_path, dataframe_name + "_binary_model.keras"))
         
         # Pickle the history to file
-        with open(os.path.join(model_path, dataframe_name + "_binary_model_train_data.keras"), 'wb') as f:
+        with open(os.path.join(model_path, dataframe_name + "_binary_model_train_history.keras"), 'wb') as f:
             pickle.dump(model_history, f)
 
     # plot model history
