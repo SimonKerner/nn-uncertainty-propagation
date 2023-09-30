@@ -7,9 +7,9 @@ Created on Thu Sep 28 12:23:57 2023
 
 
 import os
-
+import sys
 from data_visualizations import plot_history
-
+import pickle
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
@@ -75,14 +75,20 @@ def load_australian_settings(inputs):
 
 def create_binary_model(dataframe_name, X_train, y_train, X_test, y_test, save_model):
     
-    inputs = keras.Input(shape=(X_original.shape[1]))
+    inputs = keras.Input(shape=(X_train.shape[1]))
     
     # load rest of the model layers of a dataset
-    if dataframe_name == "wdbc": batch_size, epochs, outputs = load_wdbc_settings()
+    if dataframe_name == "wdbc": 
+        
+        batch_size, epochs, outputs = load_wdbc_settings(inputs)
      
-    elif dataframe_name == "climate_simulation": batch_size, epochs, outputs = load_climate_simulation_settings()
+    elif dataframe_name == "climate_simulation": 
+        
+        batch_size, epochs, outputs = load_climate_simulation_settings(inputs)
 
-    elif dataframe_name == "australian": batch_size, epochs, outputs = load_australian_settings()
+    elif dataframe_name == "australian": 
+        
+        batch_size, epochs, outputs = load_australian_settings(inputs)
 
     else: 
         print("No valid model found!")
@@ -103,19 +109,22 @@ def create_binary_model(dataframe_name, X_train, y_train, X_test, y_test, save_m
                               validation_data=[X_test, y_test], 
                               batch_size=batch_size, 
                               epochs=epochs, 
-                              verbose=0)
+                              verbose=1)
     
     if save_model:
         #get global model path & save new model
         model_path = get_model_path()
-        model.save(os.path.join(model_path, _dataset + "_binary_model.keras"))
+        model.save(os.path.join(model_path, dataframe_name + "_binary_model.keras"))
         
+        # Pickle the history to file
+        with open(os.path.join(model_path, dataframe_name + "_binary_model_train_data.keras"), 'wb') as f:
+            pickle.dump(model_history, f)
 
     # plot model history
     plot_history(model_history, model_type="binary")
 
     
-    return trained_model
+    return model
 
 
 

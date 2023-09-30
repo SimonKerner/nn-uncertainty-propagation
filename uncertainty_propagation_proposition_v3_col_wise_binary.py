@@ -11,7 +11,7 @@ import pickle
 
 from tqdm import tqdm
 
-
+from pathlib import Path
 import utils
 import data_visualizations as dvis
 from dataset_loader import load_dataframe
@@ -19,7 +19,7 @@ from dataset_loader import load_miss_dataframe
 from model_loader import create_binary_model
 from model_loader import load_binary_model
 
-
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 import numpy as np
 import pandas as pd
@@ -42,11 +42,11 @@ from sklearn.preprocessing import MinMaxScaler
 
 from sklearn.impute import SimpleImputer
 from sklearn.impute import KNNImputer
-from sklearn.metrics import roc_auc_score, roc_curve, average_precision_score
+from sklearn.metrics import roc_auc_score, roc_curve, average_precision_score, precision_recall_curve
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 
-
+import seaborn as sns
 #import statsmodels.api as sm
 
 import scipy
@@ -83,17 +83,18 @@ _results_path = os.path.join(os.getcwd(), 'sim_results')
 """
 ##########################################################################################################################
 
-#choose working dataset: "australian" or "climate_simulation", "wdbc" -> Breast Cancer Wisconsin (Diagnostic)
-_dataset = "wdbc"
-_simulate_test_set = True
-
 # set random state          
-_RANDOM_STATE = 24
+_RANDOM_STATE = 42
+
+
+#choose working dataset: choose one of the datasets above
+_dataset = "australian"
+_simulate_test_set = False
+
 
 # other constants
 _INIT_DATA_BANDWIDTH = None
 _PRED_BANDWIDTH = None # --> if None (default) "scott" is used
-#_KDE_WEIGHTS = None
 
 
 # further dataset settings
@@ -101,9 +102,10 @@ _standardize_data = True
 
 
 # settings for visualization
-_visiualize_data = False
+_visiualize_data = True
 _visualize_original_predictions = True
 _visualize_imputed_predictions = True
+_visualize_simulated_predictions = True
 
 
 # train or load model
@@ -112,37 +114,44 @@ _save_new_model = False
 _load_old_model = True
 
 
-# DATAFRAME_MISS settings - Introduction to missing values in the choosen Dataframe
-# load DataFrame_MISS // if True, an already created one will be loaded, else a new one will be created
+# load uncertain dataset // if True, an already created one will be loaded
 _load_dataframe_miss = True
 _create_dataframe_miss = True
 
-_DELETE_MODE = "static"     # static (amount of values in row deleted) // percentage (value between 0 and 1)
-_MISS_RATE = 5
+# metrics for new uncertain dataframe creation // "static" (amount of values in each row) // "percentage" (value between 0 and 1, randomly)
+_DELETE_MODE = "static"     
+_MISS_RATE = 3
 
 
-#KDE_VALUES OF EACH COLUMN - affected frames are DATAFRAME_SIMULATE -> Uncertain and DATAFRAME -> Certain/True
-_compare_col_kde_distributions = False
+# Visual KDE_VALUES of each column of a data set (these will be used for continious sampling) 
+_compare_col_kde_distributions = True
 _compare_col_kde_mode = "combined"    # choose between "single", "combined", "both" // combined can only be used when _visualize data == true
+_normalize_kde= True # setting this to false could break the plots
 
 
-# modes for deterministic/stochastic experiments on missing dataframes
-# choose between kde_imputer, mean, median, most_frequent, KNNImputer
-_IMPUTE = True
+# deterministic imputation of missing values
+_IMPUTE = False
 
+# stochastic imputation (simulation) of uncertain data
 _SIMULATE = True
 
+# mode of simulation // Monte Carlo Sampling or Latin Hypercube Sampling available
 _monte_carlo = False
 _latin_hypercube = True
+_LHS_MODE = "fast" # makes differnce in cdf computation // recomended -> fast
+_visualize_lhs_samples = False
 
-_LHS_MODE = "fast"
-_SIMULATION_LENGTH = 10000
+
+# further Simulation metrics
+_SIMULATION_LENGTH = 5
 #_SIMULATION_RANGE = None
-_SIMULATION_RANGE = range(44, 45, 1)
-_simulation_visualizations = True
-_norm= True
-_save_simulated_results = False
+_SIMULATION_RANGE = range(0, 5, 1) # if set to None -- all rows will be simulated
 
+
+_simulation_visualizations = False
+
+
+_save_simulated_results = False
 _load_simulated_results = False
 _load_results_id = 0
 
@@ -206,8 +215,8 @@ _X_original_train, _X_original_test, _y_original_train, _y_original_test = train
 
 if _train_model: 
     
-    model = create_binary_model(_dataset, _X_original_train, _X_original_test, 
-                                _y_original_train, _y_original_test, _save_new_model)
+    model = create_binary_model(_dataset, _X_original_train, _y_original_train, 
+                                _X_original_test, _y_original_test, _save_new_model)
 
 
 ##########################################################################################################################
@@ -250,18 +259,6 @@ if _load_old_model:
     # loading and compiling saved model structure
     model = load_binary_model(_dataset)
     
-    
-
-
-from mlxtend.evaluate import bias_variance_decomp
-
-avg_expected_loss, avg_bias, avg_var = bias_variance_decomp(
-        model, _X_original_train.values, _y_original_train.values, _X_original_test.values, _y_original_test.values, 
-        loss='mse',
-        num_rounds=100,
-        random_seed=24,
-        epochs=200, # fit_param
-        verbose=0) # fit_param
 
 
 
@@ -287,7 +284,7 @@ _orig_end_sample_time = time.time() - _orig_start_sample_time
 
 original_metrics["y_hat_labels"] = (original_metrics["y_hat"]>0.5).astype("int32")
 original_metrics["input_rmse"] = mse(DATAFRAME_ORIGINAL, DATAFRAME_ORIGINAL)
-original_metrics["rmse_to_original_label"] = mse(y_original, original_metrics["y_hat"])
+#original_metrics["rmse_to_original_label"] = mse(y_original, original_metrics["y_hat"])
 original_metrics["pred_time"] = _orig_end_sample_time
 original_metrics["roc_auc"] = roc_auc_score(y_original, original_metrics["y_hat"])
 original_metrics["prc_auc"] = average_precision_score(y_original, original_metrics["y_hat"])
@@ -310,8 +307,7 @@ if _visualize_imputed_predictions:
 
     
 print("\nOriginal Classification Metrics:")
-original_metrics["metrics"] = utils.create_metrics(y_original, original_metrics["y_hat_labels"], 
-                                                   print_report=False)
+original_metrics["original_statistics"] = utils.create_metrics(y_original, original_metrics["y_hat_labels"], print_report=False)
 
 
 
@@ -335,7 +331,8 @@ if _visiualize_data:
     dvis.plot_frame_comparison(data={"DATAFRAME_ORIGINAL" : np.array(DATAFRAME_ORIGINAL.iloc[:,:-1]).flatten(), 
                                      "DATAFRAME_MISS" : np.array(DATAFRAME_MISS.iloc[:,:-1]).flatten()},
                                title='Original & Uncertain dataset as flattened histplot')
-    
+
+
 
 
 ##########################################################################################################################
@@ -428,8 +425,6 @@ if _IMPUTE:
     time.sleep(1)
     
     
-
-
     _DATAFRAME_IMPUTE_COLLECTION = {"MEAN_IMPUTE" : _DATAFRAME_MEAN_IMPUTE,
                                     "MEDIAN_IMPUTE" : _DATAFRAME_MEDIAN_IMPUTE,
                                     "MODE_IMPUTE" : _DATAFRAME_MODE_IMPUTE,
@@ -473,8 +468,8 @@ if _IMPUTE:
         impute_metrics[_frame_key] = {"input_rmse" : _IMPUTE_RMSE[_frame_key],
                                       "y_hat" : _y_impute_hat,
                                       "y_hat_labels" : _y_impute_hat_labels,
-                                      "rmse_to_model_prediction" : mse(original_metrics["y_hat"], _y_impute_hat),
-                                      "rmse_to_original_label" : mse(y_original, _y_impute_hat),
+                                      #"rmse_to_model_prediction" : mse(original_metrics["y_hat"], _y_impute_hat),
+                                      #"rmse_to_original_label" : mse(y_original, _y_impute_hat),
                                       "sample_time" : _IMPUTE_TIMES[_frame_key],
                                       "pred_time" : _end_pred_time,
                                       "roc_auc" : roc_auc_score(y_original, _y_impute_hat),
@@ -492,26 +487,101 @@ if _IMPUTE:
             
             print(f"\n{_frame_key} Imputed Classification Metrics:")
         
-        impute_metrics[_frame_key]["impute//original_metrics"] = utils.create_metrics(y_original, 
-                                                                                      _y_impute_hat_labels, 
-                                                                                      print_report=False)
+        impute_metrics[_frame_key]["impute_statistics"] = utils.create_metrics(y_original, _y_impute_hat_labels, print_report=False)
 
+
+
+
+    if _visualize_imputed_predictions:
         
-        impute_metrics[_frame_key]["impute//ori_prediction_metrics"] = utils.create_metrics(original_metrics["y_hat_labels"], 
-                                                                                            _y_impute_hat_labels,  
-                                                                                            print_report=False)
-
-
-
-if _visualize_imputed_predictions:
-    
-    dvis.roc_curves(y_original, impute_metrics)
-    plt.show()       
-      
-    
-    dvis.pre_recall_curve(y_original, impute_metrics)
-    plt.show()       
+        dvis.roc_curves(y_original, impute_metrics)
+        plt.show()       
+          
         
+        dvis.pre_recall_curve(y_original, impute_metrics)
+        plt.show()       
+        
+    
+    
+
+
+    
+"""    
+def categorical_latin_hypercube_sampler(dataframe, key, sim_length, random_state):
+    
+    
+    
+    
+    dataframe = DATAFRAME_ORIGINAL 
+    key = "Attribute: 4"
+    sim_length=1000000#_SIMULATION_LENGTH
+    random_state = _RANDOM_STATE
+    
+    # get frame column wit categorical data 
+    column = dataframe.loc[:,key]
+    
+    # get unique values and normalize to probabilities // nan values get deleted
+    unique = column.value_counts(normalize=True).sort_index()
+    
+    # get sorted categories & probabilities
+    categories = np.array(list(unique.index))
+    probabilities = unique.values
+    
+    
+    # create cummulative probabilities
+    cum_probs = np.cumsum(probabilities)
+    
+    # TODO
+
+
+    # sample in 1-dimension with specific simulation length
+    lhs_sampler = stats.qmc.LatinHypercube(1, seed=random_state)
+    lhs_sample = lhs_sampler.random(n=sim_length) 
+
+    # scale the created lhs samples to min and max cdf values
+    lhs_sample_scaled = stats.qmc.scale(lhs_sample, min(cum_probs), max(cum_probs)).flatten()
+
+    # create a histogram, where the edges of the bins are corresponding to the cummulative probabilities
+    # fill in with scaled lhs samples
+    
+    
+    
+    hist, _ = np.histogram(column, np.linspace(0, 5, 20))
+
+    bin_midpoints = (bins[:-1] + bins[1:])/2
+    
+
+
+    
+    value_bins = np.searchsorted(cum_probs, lhs_sample_scaled)
+
+    random_from_cdf = bin_midpoints[value_bins]
+    
+    plt.hist(random_from_cdf, density=True)
+
+
+    plt.hist(column, density=True) 
+    
+    
+        
+    return None#generate_samples
+"""     
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     
 
 ##########################################################################################################################
@@ -609,17 +679,15 @@ if _SIMULATE:
     # index is equal to collected row results 
     SIMULATION_ROW_RESULTS = []
     
+
+    _adjusted_random_state = _RANDOM_STATE
+
     for _row in tqdm(_SIMULATION_RANGE):
         
         """
             # step 1: get current row to perform simulation with
         """
         _DATAFRAME_SIMULATE_ROW = pd.DataFrame(_DATAFRAME_SIMULATE.loc[_row])
-        
-        # for rmse calculation later on
-        _original_df_mc_row_input = pd.DataFrame(DATAFRAME_ORIGINAL.loc[_row]).copy().transpose()
-        _original_df_mc_row_outcome = pd.concat([_original_df_mc_row_input["Outcome"]] * _SIMULATION_LENGTH, ignore_index=True)
-        _original_df_mc_row_input = pd.concat([_original_df_mc_row_input.iloc[:,:-1]] * _SIMULATION_LENGTH, ignore_index=True)
         
         """
             # step 2: find all the attributes with nan values and save to variable as keys for the kde-dictionary
@@ -648,10 +716,14 @@ if _SIMULATE:
             # -----> Simulation procedure for uncertain kde induced simulation frames
         """
         
+        # for each increament in the simulated row, a different random state will be used
+        if _adjusted_random_state == None: pass
+        else:  _adjusted_random_state+=1
+        
         _uncertain_sim_row_metrics = utils.binary_sample_and_predict(model = model, 
                                                                      simulation_row = _DATAFRAME_SIMULATE_ROW,
-                                                                     original_input_row = _original_df_mc_row_input,
-                                                                     original_input_row_outcome =_original_df_mc_row_outcome,
+                                                                     #original_input_row = _original_df_mc_row_input,
+                                                                     #original_input_row_outcome =_original_df_mc_row_outcome,
                                                                      dataframe_categorical = _DATAFRAME_SIMULATE, 
                                                                      uncertain_attributes = _uncertain_attributes, 
                                                                      
@@ -660,17 +732,17 @@ if _SIMULATE:
                                                                      column_names = _column_names,
                                                                      
                                                                      simulation_length = _SIMULATION_LENGTH, 
-                                                                     random_state = _RANDOM_STATE, 
+                                                                     random_state = _adjusted_random_state, 
                                                                      
                                                                      monte_carlo = _monte_carlo,
                                                                      kde_collection = kde_collection_uncertain,
-                                                                     normalize_kde = _norm,
+                                                                     normalize_kde = _normalize_kde,
                                                                      bw_method = _PRED_BANDWIDTH,
                                                                      x_axis = _x_axis,
                                                                      
                                                                      latin_hypercube = _latin_hypercube,
                                                                      lhs_mode = _LHS_MODE, 
-                                                                     visualize_lhs_samples = False, 
+                                                                     visualize_lhs_samples = _visualize_lhs_samples, 
                                                                      lhs_prefix=" Uncertain"
                                                                      )
         
@@ -680,10 +752,14 @@ if _SIMULATE:
                     -----> Simulation procedure for true original kde induced simulation frames
         """
         
+        # for each increament in the simulated row, a different random state will be used
+        if _adjusted_random_state == None: pass
+        else:  _adjusted_random_state+=3
+        
         _original_sim_row_metrics = utils.binary_sample_and_predict(model = model, 
                                                                     simulation_row = _DATAFRAME_SIMULATE_ROW,
-                                                                    original_input_row = _original_df_mc_row_input,
-                                                                    original_input_row_outcome = _original_df_mc_row_outcome,
+                                                                    #original_input_row = _original_df_mc_row_input,
+                                                                    #original_input_row_outcome = _original_df_mc_row_outcome,
                                                                     dataframe_categorical = DATAFRAME_ORIGINAL, 
                                                                     uncertain_attributes = _uncertain_attributes, 
                                                                     
@@ -692,17 +768,17 @@ if _SIMULATE:
                                                                     column_names = _column_names,
                                                                      
                                                                     simulation_length = _SIMULATION_LENGTH, 
-                                                                    random_state = _RANDOM_STATE, 
+                                                                    random_state = _adjusted_random_state, 
                                                                      
                                                                     monte_carlo = _monte_carlo,
                                                                     kde_collection = kde_collection_original,
-                                                                    normalize_kde = _norm,
+                                                                    normalize_kde = _normalize_kde,
                                                                     bw_method = _PRED_BANDWIDTH,
                                                                     x_axis = _x_axis,
                                                                      
                                                                     latin_hypercube = _latin_hypercube,
                                                                     lhs_mode = _LHS_MODE, 
-                                                                    visualize_lhs_samples = False, 
+                                                                    visualize_lhs_samples = _visualize_lhs_samples, 
                                                                     lhs_prefix=" Original"
                                                                     )
         
@@ -722,279 +798,215 @@ if _SIMULATE:
                                        "Uncertain_Simulation" : _uncertain_sim_row_metrics
                                        })
 
+    # some accessory time metrics for comparison 
+    _main_elapsed_time = time.strftime("%H:%M:%S", time.gmtime(time.time() - _main_sim_start_time))  
+    print('\n\nSimulation execution time:', _main_elapsed_time)
 
+    
+    print('\n\nCreated checkpoint before postprocessing!')
+    # checkpoint:
+    _results_file_name = os.path.join(_results_path, "postprocess_checkpoint_"+_dataset + "_" + str(_MISS_RATE) + "_" + str(_SIMULATION_RANGE))
+    
+    pickle.dump({"SIMULATION_ROW_RESULTS" : SIMULATION_ROW_RESULTS}, open(_results_file_name, "wb"))
 
-
-
-        # visualizations for binary simulation // comparison plots
-        if _simulation_visualizations:
+    
+    
+    """
+            Post-Processing ROW-Metrics: # Simulation Results postprocess with list comprehensions for faster execution
+    """
+    
+    print('\n\nStart of results postprocessing procedure!')
+    _postprocess_start_time = time.time()
+    
+    # calculate further metrics for each row of the simulation, to gain deeper insights into each simulated row
+    SIMULATION_ROW_RESULTS, SIMULATION_MEAN_RESULTS = utils.calculate_simulation_results(DATAFRAME_ORIGINAL, SIMULATION_ROW_RESULTS, _SIMULATION_LENGTH,
+                                                                                          _SIMULATION_RANGE, _PRED_BANDWIDTH, _normalize_kde)
+    
+    _postprocess_time = time.strftime("%H:%M:%S", time.gmtime(time.time() - _postprocess_start_time))  
+    print('\n\Postprocess execution time:', _main_elapsed_time) 
+    
+    
+    
+    
+    
+    
+    # visualizations for binary simulation // comparison plots
+    if _simulation_visualizations:
+        
+        for _row in _SIMULATION_RANGE:
             
             # get last item of SIMULATION_ROW_RESULTS list and plot results
-            dvis.simulation_hist_plot(SIMULATION_ROW_RESULTS[-1], y_original, original_metrics, plotmode="specific")
-
-
-            dvis.simulation_kde_plot(_x_axis, SIMULATION_ROW_RESULTS[-1], y_original, original_metrics, impute_metrics, plotmode="specific")
-
-
-
-            
-            
-    
-"""    
-    # TODO
-    sys.exit()
-    
-    
-    
-    # simulation collection is holding all summarized information
-    SIMULATION_COLLECTION = {
-        "0_Simulation_Info" : {
-            "0.1_random_state" : _RANDOM_STATE,
-            "0.2_dataset" : _dataset,
-            "0.3_dataset_size" : DATAFRAME_ORIGINAL.size,
-            "0.4_miss_rate" : _MISS_RATE,
-            "0.5_num_missing" : DATAFRAME_MISS.isnull().sum().sum(),
-            "0.6_miss_rate_%" : round(DATAFRAME_MISS.isnull().sum().sum() * 100 / DATAFRAME_ORIGINAL.size, 2),
-            "0.7_simulation_length" : _SIMULATION_LENGTH,
-            "0.8_elapsed_sim_time" : "",
-            "0.9_simulated_rows" : len(_SIMULATION_RANGE)
-            },
-        "1_Uncertain_Simulation" : {
-            "1.0_Input_RMSE" : [],
-            "1.1_Means" : [],
-            "1.2_Mean_Labels" : [],
-            "1.3_Mean_Label_Frequenzy" : [],
-            "1.4_Stds" : [],
-            
-            
-            
-            "1.5_Max_Density_Sigmoid" : [],
-            "1.6_Max_Density_Sig_Label" : [],
-            "1.7_Max_Density_Sig_Label_Frequency" : [],
-            "1.8_Lower_Bound_Probability" : [],
-            "1.9_Upper_Bound_Probability" : []
-            },
-        "2_Original_Simulation" : {
-            "2.0_Input_RMSE" : [],
-            "2.1_Means" : [],
-            "2.2_Mean_Labels" : [],
-            "2.3_Mean_Label_Frequenzy" : [],
-            "2.4_Stds" : [],
-            
-            
-            "2.5_Max_Density_Sigmoid" : [],
-            "2.6_Max_Density_Sig_Label" : [],
-            "2.7_Max_Density_Sig_Label_Frequency" : [],
-            "2.8_Lower_Bound_Probability" : [],
-            "2.9_Upper_Bound_Probability" : []
-            }
-        }
-    
-
-    # some accessory time metrics for comparison 
-    _main_elapsed_time = time.strftime("%H:%M:%S", time.gmtime(time.time() - _main_sim_start_time))    
+            dvis.simulation_hist_plot(SIMULATION_ROW_RESULTS, y_original, original_metrics, plotmode="autosearch", row=_row)
         
-    SIMULATION_COLLECTION["0_Simulation_Info"]["0.8_elapsed_sim_time"] = str(_main_elapsed_time)
-    
-    SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.3_Mean_Label_Frequenzy"] = pd.Series(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.2_Mean_Labels"]).value_counts()
-    SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.7_Max_Density_Sig_Label_Frequency"] = pd.Series(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.6_Max_Density_Sig_Label"]).value_counts()
-    SIMULATION_COLLECTION["2_Original_Simulation"]["2.3_Mean_Label_Frequenzy"] = pd.Series(SIMULATION_COLLECTION["2_Original_Simulation"]["2.2_Mean_Labels"]).value_counts()
-    SIMULATION_COLLECTION["2_Original_Simulation"]["2.7_Max_Density_Sig_Label_Frequency"] = pd.Series(SIMULATION_COLLECTION["2_Original_Simulation"]["2.6_Max_Density_Sig_Label"]).value_counts()
-            
-    
-    SIMULATION_COLLECTION["3_Uncert_vs_Orig_KDE"] = {
-        "3.1_Explanation" : "Analysing the differences between Uncertain and Original KDE Simulations",
-        "3.2_Sim_Mean_rmse" : mse(SIMULATION_COLLECTION["2_Original_Simulation"]["2.1_Means"], SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.1_Means"], squared=False),
-        "3.3_Sim_Stds_rmse" : mse(SIMULATION_COLLECTION["2_Original_Simulation"]["2.4_Stds"], SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.4_Stds"], squared=False),
-        "3.4_Sim_Max_Density_Sigmoid_rmse" : mse(SIMULATION_COLLECTION["2_Original_Simulation"]["2.5_Max_Density_Sigmoid"], SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.5_Max_Density_Sigmoid"], squared=False)
-        }
-        
-
-    print('\n\nSimulation execution time:', _main_elapsed_time)
-    
-    
-    
-    
-        Below: combined Comparisons between the prediction results of Uncertain and Certain KDE simulations
-
-    
-    _fig, _axs = plt.subplots(2, 2, figsize=(17, 11))
-    
-    # visualize predictions - uncertain density
-    sns.histplot(data={"Sigmoid Activations" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.5_Max_Density_Sigmoid"], 
-                       "density_label" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.6_Max_Density_Sig_Label"]}, 
-                 x="Sigmoid Activations", 
-                 hue="density_label", 
-                 bins=15, 
-                 binrange=(0, 1), 
-                 stat="count", 
-                 kde=False, 
-                 kde_kws={"cut":0}, 
-                 ax=_axs[0, 0]).set(title=f'Simulation (uncertain_kde) - Miss-Rate: {_MISS_RATE} - Metric: Sim. Density')
-
-    # visualize predictions - original density
-    sns.histplot(data={"Sigmoid Activations" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.5_Max_Density_Sigmoid"], 
-                       "density_label" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.6_Max_Density_Sig_Label"]}, 
-                 x="Sigmoid Activations", 
-                 hue="density_label", 
-                 bins=15, 
-                 binrange=(0, 1), 
-                 stat="count", 
-                 kde=False, 
-                 kde_kws={"cut":0}, 
-                 ax=_axs[0, 1]).set(title=f'Simulation (original_kde) - Miss-Rate: {_MISS_RATE} - Metric: Sim. Density')
+            dvis.simulation_kde_plot(_x_axis, SIMULATION_ROW_RESULTS, y_original, original_metrics, impute_metrics, plotmode="autosearch", row=_row)
     
         
-    # visualize predictions - uncertain mean simulation
-    #plt._figure(figsize=(10, 6))
-    sns.histplot(data={"Sigmoid Activations" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.1_Means"], 
-                       "mean_label" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.2_Mean_Labels"]}, 
-                 x="Sigmoid Activations", 
-                 hue="mean_label", 
-                 bins=15, 
-                 binrange=(0, 1), 
-                 stat="count", 
-                 kde=False, 
-                 kde_kws={"cut":0}, 
-                 ax=_axs[1, 0]).set(title=f'Simulation (uncertain_kde) - Miss-Rate: {_MISS_RATE} - Metric: Sim. Mean')
+    
+    
+        
+    if _visualize_simulated_predictions:
+        
+        # reference found in data_visualizations 
+        names = ["Orig_Mean", "Orig_Median", "Orig_Mode", "Uncert_Mean", "Uncert_Median", "Uncertain_Mode"]
+        
+        _enumeration = enumerate([SIMULATION_MEAN_RESULTS["Original_Mean"], SIMULATION_MEAN_RESULTS["Original_Median"], SIMULATION_MEAN_RESULTS["Original_Mode"],
+                     SIMULATION_MEAN_RESULTS["Uncertain_Mean"], SIMULATION_MEAN_RESULTS["Uncertain_Median"], SIMULATION_MEAN_RESULTS["Uncertain_Mode"]])
+        
+        for _i, key in _enumeration:
+    
+            fpr, tpr, thresholds = roc_curve(y_original[_SIMULATION_RANGE], key)
+    
+            # AUC score that summarizes the ROC curve
+            roc_auc = roc_auc_score(y_original[_SIMULATION_RANGE], key)
+            
+            plt.plot(fpr, tpr, lw = 2, label = names[_i] + ' ROC AUC: {:.2f}'.format(roc_auc))
+            
+        plt.plot([0, 1], [0, 1],
+                 linestyle = '--',
+                 color = (0.6, 0.6, 0.6),
+                 label = 'random guessing')
+        plt.plot([0, 0, 1], [0, 1, 1],
+                 linestyle = ':',
+                 color = 'black', 
+                 label = 'perfect performance')
+            
+        plt.xlim([-0.05, 1.05])
+        plt.ylim([-0.05, 1.05])
+        plt.xlabel('false positive rate')
+        plt.ylabel('true positive rate')
+        plt.title('Receiver Operator Characteristic')
+        
+            
+        plt.legend(loc = "lower right", fontsize=9)
+        plt.tight_layout()   
+        plt.show()
+          
+        
+        
+        # reference found in data_visualizations 
+        for i, key in enumerate([SIMULATION_MEAN_RESULTS["Original_Mean"], SIMULATION_MEAN_RESULTS["Original_Median"], SIMULATION_MEAN_RESULTS["Original_Mode"],
+                     SIMULATION_MEAN_RESULTS["Uncertain_Mean"], SIMULATION_MEAN_RESULTS["Uncertain_Median"], SIMULATION_MEAN_RESULTS["Uncertain_Mode"]]):
+            
+            precision, recall, thresholds = precision_recall_curve(y_original[_SIMULATION_RANGE], key)
+            
+            # AUC score that summarizes the precision recall curve
+            avg_precision = average_precision_score(y_original[_SIMULATION_RANGE], key)
+            
+            plt.plot(recall, precision, lw = 2, label = names[i] + ' PRC AUC: {:.2f}'.format(avg_precision))
+            
+        plt.xlabel('Recall')  
+        plt.ylabel('Precision')  
+        plt.title('Precision Recall Curve')
+        plt.legend(loc = "lower left", fontsize=9)
+        plt.tight_layout()
+        plt.show()
+    
 
 
-    # visualize predictions - original mean simulation
-    #plt._figure(figsize=(10, 6))
-    sns.histplot(data={"Sigmoid Activations" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.1_Means"], 
-                       "mean_label" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.2_Mean_Labels"]}, 
-                 x="Sigmoid Activations", 
-                 hue="mean_label", 
-                 bins=15, 
-                 binrange=(0, 1), 
-                 stat="count", 
-                 kde=False, 
-                 kde_kws={"cut":0}, 
-                 ax=_axs[1, 1]).set(title=f'Simulation (original_kde) - Miss-Rate: {_MISS_RATE} - Metric: Sim. Mean')
-    plt.show()
 
 
 
 
 
+
+"""
+        OVERALL RESULTS COLLECTION:
+"""       
 
 
 # exit if statement if no further simulations will be made
 if _IMPUTE == False and _SIMULATE == False:
     sys.exit()
 
-
-if _IMPUTE == True and _SIMULATE == True:
-        
-        _min_idx = min(_SIMULATION_RANGE)
-        _max_idx = max(_SIMULATION_RANGE) + 1
-
-
-        DATAFRAME_COMBINED_ROW_RESULTS = pd.DataFrame(data={"Original_Label" : y_original[_min_idx:_max_idx],
-                                                        "0_Prediction" : original_metrics["y_hat"][_min_idx:_max_idx],
-                                                        "0_Predicted_Label" : original_metrics["y_hat_labels"][_min_idx:_max_idx],
-                                                        
-                                                        "1_Imputation-Mean" : impute_metrics["MEAN_IMPUTE"]["y_hat"][_min_idx:_max_idx],
-                                                        "1_Imputation-Mean_Label" : impute_metrics["MEAN_IMPUTE"]["y_hat_labels"][_min_idx:_max_idx],    
-                                                        "1_Imputation-Mode" : impute_metrics["MODE_IMPUTE"]["y_hat"][_min_idx:_max_idx],
-                                                        "1_Imputation-Mode_Label" : impute_metrics["MODE_IMPUTE"]["y_hat_labels"][_min_idx:_max_idx],
-                                                        "1_Imputation-Median" : impute_metrics["MEDIAN_IMPUTE"]["y_hat"][_min_idx:_max_idx],
-                                                        "1_Imputation-Median_Label" : impute_metrics["MEDIAN_IMPUTE"]["y_hat_labels"][_min_idx:_max_idx],
-                                                        "1_Imputation-KNNImp" : impute_metrics["KNN_IMPUTE"]["y_hat"][_min_idx:_max_idx],
-                                                        "1_Imputation-KNNIMP_Label" : impute_metrics["KNN_IMPUTE"]["y_hat_labels"][_min_idx:_max_idx],
-                                                        "1_Imputation-ITERIMP" : impute_metrics["ITER_IMPUTE"]["y_hat"][_min_idx:_max_idx],
-                                                        "1_Imputation-ITERIMP_Label" :impute_metrics["ITER_IMPUTE"]["y_hat_labels"][_min_idx:_max_idx],
-                                                        
-                                                        "2_Orig_Sim_Mean" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.1_Means"],
-                                                        "2_Orig_Sim_Mean_Label" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.2_Mean_Labels"],
-                                                        "2_Orig_Sim_Mean_Std" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.4_Stds"],
-                                                        "2_Orig_Sim_Max_Density" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.5_Max_Density_Sigmoid"],
-                                                        "2_Orig_Sim_Max_Density_Label" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.6_Max_Density_Sig_Label"],
-                                                        "2_Orig_Lower_Bound_Probability" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.8_Lower_Bound_Probability"],
-                                                        "2_Orig_Upper_Bound_Probability" : SIMULATION_COLLECTION["2_Original_Simulation"]["2.9_Upper_Bound_Probability"],
-                                                                         
-                                                        "3_Uncert_Sim_Mean" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.1_Means"],
-                                                        "3_Uncert_Sim_Mean_Label" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.2_Mean_Labels"],
-                                                        "3_Uncert_Sim_Mean_Std" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.4_Stds"],
-                                                        "3_Uncert_Sim_Max_Density" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.5_Max_Density_Sigmoid"],
-                                                        "3_Uncert_Sim_Max_Density_Label" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.6_Max_Density_Sig_Label"],
-                                                        "3_Uncert_Lower_Bound_Probability" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.8_Lower_Bound_Probability"],
-                                                        "3_Uncert_Upper_Bound_Probability" : SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.9_Upper_Bound_Probability"]
-                                                        }).transpose()
-
-
-        # calculate the distance to model prediction
-        _COMBINED_DISTANCES_PREDICTION = pd.Series(data={"1_Imp_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean"], squared=False),                                                      
-                                                        "1_Imp_Mode_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode"], squared=False),                 
-                                                        "1_Imp_Median_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median"], squared=False),
-                                                        "1_Imp_KNN_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNImp"], squared=False),
-                                                        "1_Imp_ITERIMP_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-ITERIMP"], squared=False),
-                                                        "2_Orig_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean"], squared=False),
-                                                        "2_Orig_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density"], squared=False),
-                                                        "3_Uncert_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean"], squared=False),
-                                                        "3_Uncert_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Prediction"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Max_Density"], squared=False)
-                                                        }, name="to Prediction")
-        
-        
-        # calculate the distance to predicted model label
-        _COMBINED_DISTANCES_PREDICTION_LABEL = pd.Series(data={"1_Imp_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean"], squared=False),                                                      
-                                                               "1_Imp_Mode_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode"], squared=False),                 
-                                                               "1_Imp_Median_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median"], squared=False),
-                                                               "1_Imp_KNN_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNImp"], squared=False),
-                                                               "1_Imp_ITERIMP_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-ITERIMP"], squared=False),
-                                                               "2_Orig_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean"], squared=False),
-                                                               "2_Orig_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density"], squared=False),
-                                                               "3_Uncert_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean"], squared=False),
-                                                               "3_Uncert_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["0_Predicted_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Max_Density"], squared=False)
-                                                               }, name="to Prediction Label")
-        
-        
-        # calculate the distance to predicted model label
-        _COMBINED_DISTANCES_ORIGINAL = pd.Series(data={"1_Imp_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mean"], squared=False),                                                      
-                                                       "1_Imp_Mode_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Mode"], squared=False),                 
-                                                       "1_Imp_Median_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-Median"], squared=False),
-                                                       "1_Imp_KNN_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-KNNImp"], squared=False),
-                                                       "1_Imp_ITERIMP_distancs" :  mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["1_Imputation-ITERIMP"], squared=False),
-                                                       "2_Orig_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Mean"], squared=False),
-                                                       "2_Orig_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["2_Orig_Sim_Max_Density"], squared=False),
-                                                       "3_Uncert_Sim_Mean_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Mean"], squared=False),
-                                                       "3_Uncert_Sim_Max_Density_distances" : mse(DATAFRAME_COMBINED_ROW_RESULTS.loc["Original_Label"], DATAFRAME_COMBINED_ROW_RESULTS.loc["3_Uncert_Sim_Max_Density"], squared=False)
-                                                       }, name="to Original Label")
-
-
-
-        COMBINED_DISTANCES_ANALYSIS = pd.DataFrame(data={_COMBINED_DISTANCES_ORIGINAL.name : _COMBINED_DISTANCES_ORIGINAL,
-                                                         _COMBINED_DISTANCES_PREDICTION_LABEL.name : _COMBINED_DISTANCES_PREDICTION_LABEL,
-                                                         _COMBINED_DISTANCES_PREDICTION.name : _COMBINED_DISTANCES_PREDICTION
-                                                         })  
-        min_distance = pd.Series(COMBINED_DISTANCES_ANALYSIS.idxmin(axis=0), name="4_Min Distance").to_frame().T
-        COMBINED_DISTANCES_ANALYSIS = pd.concat([COMBINED_DISTANCES_ANALYSIS, min_distance])
-        
-        
-        
-
-        
-        
-
+else:     
+                
+       
+    # time is calculated as time needed per sampled/predicted row
+    _sim_mean_times = pd.Series(data={"Uncertain_Sample_Time": np.mean([i["Uncertain_Simulation"]["sample_time"] for i in SIMULATION_ROW_RESULTS]),
+                                                        "Original_Sample_Time": np.mean([i["Original_Simulation"]["sample_time"] for i in SIMULATION_ROW_RESULTS]),
+                                                        "Uncertain_Prediction_Time": np.mean([i["Uncertain_Simulation"]["prediction_time"] for i in SIMULATION_ROW_RESULTS]),
+                                                        "Original_Prediction_Time": np.mean([i["Uncertain_Simulation"]["prediction_time"] for i in SIMULATION_ROW_RESULTS]),           
+                                                        })  
+       
     
-
     
-
+    
+    # calculate the Input RMSE between the original DataFrame and the Uncertain DataFrames    
+    DATAFRAME_INPUT_ANALYSIS = pd.Series(data={"Mean_Impute_df" : impute_metrics["MEAN_IMPUTE"]["input_rmse"],
+                                               "Mode_Impute_df" : impute_metrics["MODE_IMPUTE"]["input_rmse"],
+                                               "Median_Impute_df" : impute_metrics["MEDIAN_IMPUTE"]["input_rmse"],
+                                               "KNNImp_Impute_df" : impute_metrics["KNN_IMPUTE"]["input_rmse"],
+                                               "IterImp_Impute_df" : impute_metrics["ITER_IMPUTE"]["input_rmse"],
+                                               "Uncertain_Mean_Sim_Input_RMSE" : SIMULATION_MEAN_RESULTS["Uncertain_Simulation_Input_RMSE"],
+                                               "Original_Mean_Sim_Input_RMSE" : SIMULATION_MEAN_RESULTS["Original_Simulation_Input_RMSE"],
+                                               }, name="RMSE")
+    
+    
+    
+    
+    DATAFRAME_TIME_ANALYSIS = pd.DataFrame(data=[[0, original_metrics["pred_time"]],
+                                                 [impute_metrics["MEAN_IMPUTE"]["sample_time"], impute_metrics["MEAN_IMPUTE"]["pred_time"]],
+                                                 [impute_metrics["MODE_IMPUTE"]["sample_time"], impute_metrics["MODE_IMPUTE"]["pred_time"]],
+                                                 [impute_metrics["MEDIAN_IMPUTE"]["sample_time"], impute_metrics["MEDIAN_IMPUTE"]["pred_time"]],
+                                                 [impute_metrics["KNN_IMPUTE"]["sample_time"], impute_metrics["KNN_IMPUTE"]["pred_time"]],
+                                                 [impute_metrics["ITER_IMPUTE"]["sample_time"], impute_metrics["ITER_IMPUTE"]["pred_time"]],
+                                                 [_sim_mean_times["Uncertain_Sample_Time"], _sim_mean_times["Uncertain_Prediction_Time"]],
+                                                 [_sim_mean_times["Original_Sample_Time"], _sim_mean_times["Original_Prediction_Time"]]
+                                                 ], 
+                                           index=["Original Model", "Mean Imputation", "Mode_Imputation", "Median_Imputation", "KNN-Imputation", "Iter. Imputation", "Uncertain_Simulation", "Original_Simulation"], 
+                                           columns=["Sample Time", "Prediction Time"])
         
-
-
-
-        # calculate the Input RMSE between the original DataFrame and the Uncertain DataFrames    
-        DATAFRAME_INPUT_ANALYSIS = pd.Series(data={"Mean_Impute_df" : _INPUT_RMSE_MEAN,
-                                                   "Mode_Impute_df" : _INPUT_RMSE_MODE,
-                                                   "Median_Impute_df" : _INPUT_RMSE_MEDIAN,
-                                                   "KNNImp_Impute_df" : _INPUT_RMSE_KNNIMP,
-                                                   "IterImp_Impute_df" : _INPUT_RMSE_ITERIMP,
-                                                   "Uncertain_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.0_Input_RMSE"]),
-                                                   "Original_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["2_Original_Simulation"]["2.0_Input_RMSE"])
-                                                   }, name="RMSE")
-
-
+    
+    
+    
+    SIMULATION_OUTPUT_ANALYSIS = {"original_mc_accuracy" : SIMULATION_MEAN_RESULTS["Original_Mean_Accuracy"],
+                                  
+                                  "original_mean_metrics" : {
+                                          "metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mean_Labels"], print_report=False),
+                                          "roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mean"]),
+                                          "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mean"]),
+                                          },
+                                  
+                                  "original_median_metrics" : {
+                                          "metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Median_Labels"], print_report=False),
+                                          "roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Median"]),
+                                          "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Median"]),
+                                          },
+                                  
+                                  "original_mode_metrics" : {
+                                          "metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mode_Labels"], print_report=False),
+                                          "roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mode"]),
+                                          "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mode"]),
+                                          },
+                                  
+                                  "original_probability_metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Probability_Labels"], print_report=False),
+    
+                                    
+    
+                                  "uncertain_mc_accuracy" : SIMULATION_MEAN_RESULTS["Uncertain_Mean_Accuracy"],
+                                  
+                                  "uncertain_mean_metrics" : {
+                                          "metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mean_Labels"], print_report=False),
+                                          "roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mean"]),
+                                          "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mean"]),
+                                          },
+                                  
+                                  "uncertain_median_metrics" : {
+                                          "metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Median_Labels"], print_report=False),
+                                          "roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Median"]),
+                                          "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Median"]),
+                                          },
+                                    
+                                  "uncertain_mode_metrics" : {
+                                          "metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mode_Labels"], print_report=False),
+                                          "roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mode"]),
+                                          "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mode"]),
+                                          },
+        
+                                  "uncertain_probability_metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Probability_Labels"], print_report=False)
+                                  }  
+      
+    
 
 if _save_simulated_results:
     
@@ -1006,18 +1018,19 @@ if _save_simulated_results:
     
     
     if _IMPUTE == True and _SIMULATE == True:
-        pickle.dump({"SIMULATION_COLLECTION": SIMULATION_COLLECTION,
-                     "SIMULATION_ROW_RESULTS" : SIMULATION_ROW_RESULTS,
-                     "DATAFRAME_COMBINED_ROW_RESULTS" : DATAFRAME_COMBINED_ROW_RESULTS,
-                     "COMBINED_DISTANCES_ANALYSIS" : COMBINED_DISTANCES_ANALYSIS,
-                     "DATAFRAME_COMBINED_LABELS" : DATAFRAME_COMBINED_LABELS,
-                     "DATAFRAME_COMBINED_LABELS_ANALYSIS" : DATAFRAME_COMBINED_LABELS_ANALYSIS
-                     }, open(_results_file_name, "wb"))
+        pickle.dump({
+            "SIMULATION_ROW_RESULTS" : SIMULATION_ROW_RESULTS,
+            "SIMULATION_MEAN_RESULTS" : SIMULATION_MEAN_RESULTS,
+            "DATAFRAME_INPUT_ANALYSIS" : DATAFRAME_INPUT_ANALYSIS,
+            "DATAFRAME_TIME_ANALYSIS" : DATAFRAME_TIME_ANALYSIS,
+            "SIMULATION_OUTPUT_ANALYSIS" : SIMULATION_OUTPUT_ANALYSIS
+            }, open(_results_file_name, "wb"))
     else:
-        pickle.dump({"SIMULATION_COLLECTION": SIMULATION_COLLECTION,
-                     "SIMULATION_ROW_RESULTS" : SIMULATION_ROW_RESULTS,
-                     }, open(_results_file_name, "wb"))
-
+        pickle.dump({
+            "SIMULATION_ROW_RESULTS" : SIMULATION_ROW_RESULTS,
+            "SIMULATION_MEAN_RESULTS" : SIMULATION_MEAN_RESULTS,
+            "SIMULATION_OUTPUT_ANALYSIS" : SIMULATION_OUTPUT_ANALYSIS
+            }, open(_results_file_name, "wb"))
 
 
 
@@ -1046,4 +1059,3 @@ if _load_simulated_results:
 
 
 
-"""

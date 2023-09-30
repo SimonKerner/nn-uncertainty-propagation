@@ -214,6 +214,7 @@ def kde_latin_hypercube_sampler(kde_collection, sim_length, random_state, mode="
 
     generate_samples = inversefunction(lhs_sample_scaled)
 
+
     if visualize_lhs_samples:
         sns.histplot(generate_samples)
         plt.title(f"LH-Sample: {attributekey} - Sample Size: {sim_length}")
@@ -267,18 +268,29 @@ def categorical_latin_hypercube_sampler(dataframe, key, sim_length, random_state
 
 def categorical_distribution_sample(dataframe, key, sim_length):
     
+    """
+    dataframe = DATAFRAME_ORIGINAL 
+    key = "Attribute: 4"
+    sim_length=_SIMULATION_LENGTH
+    random_state = _RANDOM_STATE
+    """
+    
     # get frame column wit categorical data 
     column = dataframe.loc[:,key]
     
     # get unique values and normalize to probabilities // nan values get deleted
     unique = column.value_counts(normalize=True).sort_index()
-
+    
+    # get sorted categories
     categories = np.array(list(unique.index))
+    
+    # get probabilities of catagories
     probabilities = unique.values
     
+    # sample from categories with corresponding probability
     draw_sample = np.random.choice(categories, sim_length, p=probabilities)
     
-    return draw_sample
+    return draw_sample  
 
 
 
@@ -315,14 +327,22 @@ def generate_simulation_sample_collection(uncertain_attributes, dataframe_catego
         
         sample_collection = []
         
+        
+        adjusted_random_state = random_state
+        
         # sample from uncertain and original kde for input imputation
         for key in uncertain_attributes:
+
+            # for each increament in the simulated column, a different random state will be used
+            if adjusted_random_state == None: pass
+            else:  adjusted_random_state+=2
+            
 
             # sample from categorical distribution
             if datatype_map[key] == "Categorical":
 
                 # random samples from with respective probabilities
-                categorical_sample = categorical_distribution_sample(dataframe_categorical, key)
+                categorical_sample = categorical_distribution_sample(dataframe_categorical, key, simulation_length)
                 
                 # append draws to collection
                 sample_collection.append(categorical_sample)
@@ -334,12 +354,12 @@ def generate_simulation_sample_collection(uncertain_attributes, dataframe_catego
                 if monte_carlo:
                     
                     # resample randomly a new dataset of the underlying kde
-                    distribution_sample = kde_collection[key].resample(simulation_length, seed=random_state).flatten()
+                    distribution_sample = kde_collection[key].resample(simulation_length, seed=adjusted_random_state).flatten()
 
                 if latin_hypercube:
                     
                     # 1 dimensional latin hypercube sampling
-                    distribution_sample = kde_latin_hypercube_sampler(kde_collection[key], simulation_length, random_state, 
+                    distribution_sample = kde_latin_hypercube_sampler(kde_collection[key], simulation_length, adjusted_random_state, 
                                                                       mode=lhs_mode, visualize_lhs_samples=visualize_lhs_samples,
                                                                       attributekey=key + lhs_prefix).flatten()
                 
@@ -390,7 +410,7 @@ def generate_simulation_inputs(simulation_row, simulation_length, uncertain_attr
 
 
 
-
+"""
 def create_pred_simulation_metrics(y_simulation_hat, original_input_row_outcome, bw_method, x_axis, normalize):
     
         # simulation non-parametric statistics
@@ -408,13 +428,14 @@ def create_pred_simulation_metrics(y_simulation_hat, original_input_row_outcome,
                        "y_hat_labels" : (y_simulation_hat>0.5).astype("int32"),
                        "mean" : y_simulation_hat.mean(),
                        "median" : np.median(y_simulation_hat),
-                       "mode" : x_axis[np.argmax(kde_pdfs)],
-                       "min" : min(y_simulation_hat),
-                       "max" : max(y_simulation_hat),
+
+                       #"min" : min(y_simulation_hat),
+                       #"max" : max(y_simulation_hat),
                        "std" : y_simulation_hat.std(),
-                       "kurtosis" : stats.kurtosis(y_simulation_hat),
-                       "skewness" : stats.skew(y_simulation_hat),
+                       #"kurtosis" : stats.kurtosis(y_simulation_hat),
+                       #"skewness" : stats.skew(y_simulation_hat),
                        "pdfs" : kde_pdfs,
+                       "pdf_x_axis" : x_axis,
                        "lower_probability" : round(simulation_result_kde.integrate_box_1d(float("-inf"), 0.5), 8),
                        "upper_probability" : round(simulation_result_kde.integrate_box_1d(0.5, float("inf")), 8),
                        }
@@ -427,19 +448,19 @@ def create_pred_simulation_metrics(y_simulation_hat, original_input_row_outcome,
         row_metrics["probability_sum"] = round(row_metrics["lower_probability"] + row_metrics["upper_probability"], 2)
         
         row_metrics["accuracy"] = metrics.accuracy_score(original_input_row_outcome, row_metrics["y_hat_labels"])
-        row_metrics["f1_macro"] = metrics.f1_score(original_input_row_outcome, row_metrics["y_hat_labels"], average="macro")
-        row_metrics["precision_macro"] = metrics.precision_score(original_input_row_outcome, row_metrics["y_hat_labels"], average="macro")
-        row_metrics["recall_macro"] = metrics.recall_score(original_input_row_outcome, row_metrics["y_hat_labels"], average="macro")
+        #row_metrics["f1_macro"] = metrics.f1_score(original_input_row_outcome, row_metrics["y_hat_labels"], average="macro")
+        #row_metrics["precision_macro"] = metrics.precision_score(original_input_row_outcome, row_metrics["y_hat_labels"], average="macro")
         
-        row_metrics["rmse_pred_error"] = mse(original_input_row_outcome, y_simulation_hat, squared=False)
+        #row_metrics["rmse_pred_error"] = mse(original_input_row_outcome, y_simulation_hat, squared=False)
         
         #row_metrics["metrics"] = create_metrics(original_input_row_outcome, row_metrics["y_hat_labels"], print_report=False)
         
         return row_metrics
-    
+"""    
 
-    
-def binary_sample_and_predict(model, simulation_row, original_input_row, original_input_row_outcome, dataframe_categorical, 
+
+                              # original_input_row, original_input_row_outcome,
+def binary_sample_and_predict(model, simulation_row, dataframe_categorical, 
                               uncertain_attributes, standardize_data, datatype_map, column_names, simulation_length, random_state, 
                               monte_carlo, kde_collection, normalize_kde, bw_method, x_axis,  latin_hypercube, lhs_mode, 
                               visualize_lhs_samples, lhs_prefix):
@@ -449,18 +470,18 @@ def binary_sample_and_predict(model, simulation_row, original_input_row, origina
         start_sample_time = time.time()
         
         INPUT_SAMPLE_COLLECTION = generate_simulation_sample_collection(uncertain_attributes = uncertain_attributes, 
-                                                                             dataframe_categorical = dataframe_categorical, 
-                                                                             kde_collection = kde_collection, 
-                                                                             monte_carlo = monte_carlo, 
-                                                                             latin_hypercube = latin_hypercube, 
-                                                                             standardize_data = standardize_data, 
-                                                                             datatype_map = datatype_map, 
-                                                                             column_names = column_names,                                            
-                                                                             simulation_length = simulation_length, 
-                                                                             random_state = random_state, 
-                                                                             lhs_mode = lhs_mode, 
-                                                                             visualize_lhs_samples = visualize_lhs_samples, 
-                                                                             lhs_prefix = lhs_prefix)
+                                                                        dataframe_categorical = dataframe_categorical, 
+                                                                        kde_collection = kde_collection, 
+                                                                        monte_carlo = monte_carlo, 
+                                                                        latin_hypercube = latin_hypercube, 
+                                                                        standardize_data = standardize_data, 
+                                                                        datatype_map = datatype_map, 
+                                                                        column_names = column_names,                                            
+                                                                        simulation_length = simulation_length, 
+                                                                        random_state = random_state, 
+                                                                        lhs_mode = lhs_mode, 
+                                                                        visualize_lhs_samples = visualize_lhs_samples, 
+                                                                        lhs_prefix = lhs_prefix)
         
         
         # PART 2: COMBINE(IMPUTE) DATAFRAM WITH SAMPLES TO CREATE INPUT
@@ -482,15 +503,132 @@ def binary_sample_and_predict(model, simulation_row, original_input_row, origina
         
         end_pred_time = time.time() - start_pred_time
         
-        
+        """
         sim_row_metrics = create_pred_simulation_metrics(y_simulation_hat=Y_SIMULATION_HAT, 
                                                          original_input_row_outcome=original_input_row_outcome,
                                                          bw_method=bw_method, 
                                                          x_axis=x_axis, 
                                                          normalize=normalize_kde)
+        """
         
-        sim_row_metrics["input_rmse"] = mse(original_input_row, _X_SIMULATION_INPUT, squared=False)  
+        sim_row_metrics = {"y_hat" : Y_SIMULATION_HAT,
+                           "y_hat_labels" : (Y_SIMULATION_HAT>0.5).astype("int32"),
+                           
+                           "mean" : Y_SIMULATION_HAT.mean(),
+                           "median" : np.median(Y_SIMULATION_HAT),
+                           "min" : min(Y_SIMULATION_HAT),
+                           "max" : max(Y_SIMULATION_HAT),
+                           
+                           "std" : Y_SIMULATION_HAT.std(),
+                           "var" : Y_SIMULATION_HAT.var(),
+                           
+                           "kurtosis" : stats.kurtosis(Y_SIMULATION_HAT),
+                           "skewness" : stats.skew(Y_SIMULATION_HAT),
+                            
+                           "simulation_input" : _X_SIMULATION_INPUT,
+                           "pdf_x_axis" : x_axis}
+        
+        
+        sim_row_metrics["mean_label"] = (sim_row_metrics["mean"]>0.5).astype("int32")
+        sim_row_metrics["median_label"] = (sim_row_metrics["median"]>0.5).astype("int32")
+
         sim_row_metrics["sample_time"] = end_sample_time
         sim_row_metrics["prediction_time"] = end_pred_time
         
+        
         return sim_row_metrics
+    
+    
+    
+
+
+def calculate_simulation_results(DATAFRAME_ORIGINAL, SIMULATION_ROW_RESULTS, _SIMULATION_LENGTH, _SIMULATION_RANGE, bw_method, normalize):
+
+    mean_values = {}
+
+    # change shape of original rows to equal the length of SIMULATION_LENGTH
+    original_rows = [DATAFRAME_ORIGINAL.loc[row] for row in DATAFRAME_ORIGINAL.iloc[_SIMULATION_RANGE].index]
+    
+    
+    # calculate mean accuracy for each row and then take the mean
+    original_mc_style_input = [np.concatenate([[np.array(row.iloc[:-1])]] * _SIMULATION_LENGTH) for row in original_rows]
+    original_mc_style_outcome = [[row["Outcome"]] * _SIMULATION_LENGTH for row in original_rows]
+    
+    
+    for prefix in ["Original", "Uncertain"]: 
+
+        row_wise_accuracy = [accuracy_score(original_mc_style_outcome[index], sim[prefix+"_Simulation"]["y_hat_labels"]) for index, sim in enumerate(SIMULATION_ROW_RESULTS)]
+        row_wise_accuracy = pd.Series(row_wise_accuracy, index=_SIMULATION_RANGE)
+        mean_values[prefix+"_Mean_Accuracy"] = np.mean(row_wise_accuracy)
+        
+        # input rmse for uncertain and original simulation sample results
+        input_rmse = [mse(original, np.array(SIMULATION_ROW_RESULTS[row][prefix+"_Simulation"]["simulation_input"]), squared=False) for row, original in enumerate(original_mc_style_input)]
+        input_rmse = pd.Series(input_rmse, index=_SIMULATION_RANGE)
+        mean_values[prefix+"_Simulation_Input_RMSE"] = np.mean(input_rmse)
+    
+        #append results to specific rows
+        for index, sim_index in enumerate(_SIMULATION_RANGE):
+            
+            SIMULATION_ROW_RESULTS[index][prefix+"_Simulation"]["accuracy"] = row_wise_accuracy.loc[sim_index]
+            SIMULATION_ROW_RESULTS[index][prefix+"_Simulation"]["input_rmse"] = input_rmse.loc[sim_index]
+        
+    
+    
+    del original_mc_style_outcome, original_mc_style_input
+    del input_rmse, row_wise_accuracy, original_rows
+
+
+
+    for row in SIMULATION_ROW_RESULTS:
+        
+        for prefix in ["Original", "Uncertain"]: 
+            
+            # simulation non-parametric statistics
+            simulation_result_kde = stats.gaussian_kde(row[prefix+"_Simulation"]["y_hat"], bw_method=bw_method, 
+                                                       weights=adjust_edgeweight(row[prefix+"_Simulation"]["y_hat"], bw_method))
+            
+            kde_pdfs = simulation_result_kde.pdf(row[prefix+"_Simulation"]["pdf_x_axis"]) 
+            
+            
+            row[prefix+"_Simulation"]["mode"] = row[prefix+"_Simulation"]["pdf_x_axis"][np.argmax(kde_pdfs)]
+            
+            if normalize:
+                scaler = MinMaxScaler()
+                kde_pdfs = scaler.fit_transform(kde_pdfs.reshape(-1, 1)).reshape(-1)   
+            
+            
+            row[prefix+"_Simulation"]["mode_label"] = (row[prefix+"_Simulation"]["mode"]>0.5).astype("int32")
+              
+            row[prefix+"_Simulation"]["kde_pdf_y_axis"] = kde_pdfs
+            
+            row[prefix+"_Simulation"]["lower_probability"] = round(simulation_result_kde.integrate_box_1d(float("-inf"), 0.5), 8)
+            row[prefix+"_Simulation"]["upper_probability"] = round(simulation_result_kde.integrate_box_1d(0.5, float("inf")), 8)
+            
+            row[prefix+"_Simulation"]["probability_label"] = ((row[prefix+"_Simulation"]["upper_probability"])>0.5).astype("int32")
+            row[prefix+"_Simulation"]["probability_sum"] = round(row[prefix+"_Simulation"]["lower_probability"] + row[prefix+"_Simulation"]["upper_probability"], 2)
+            
+
+    for deletion in SIMULATION_ROW_RESULTS:
+        del deletion["Original_Simulation"]["simulation_input"]
+        del deletion["Uncertain_Simulation"]["simulation_input"]
+    
+    
+    # collect all labels
+    for prefix in ["Original", "Uncertain"]: 
+        
+        mean_values[prefix+"_Mean"] = [results[prefix+"_Simulation"]["mean"] for results in SIMULATION_ROW_RESULTS]
+        mean_values[prefix+"_Mode"] = [results[prefix+"_Simulation"]["mode"] for results in SIMULATION_ROW_RESULTS]
+        mean_values[prefix+"_Median"] = [results[prefix+"_Simulation"]["median"] for results in SIMULATION_ROW_RESULTS]
+        mean_values[prefix+"_Mode"] = [results[prefix+"_Simulation"]["mode"] for results in SIMULATION_ROW_RESULTS]
+        
+        mean_values[prefix+"_Mean_Labels"] = [results[prefix+"_Simulation"]["mean_label"] for results in SIMULATION_ROW_RESULTS]
+        mean_values[prefix+"_Mode_Labels"] = [results[prefix+"_Simulation"]["mode_label"] for results in SIMULATION_ROW_RESULTS]
+        mean_values[prefix+"_Median_Labels"] = [results[prefix+"_Simulation"]["median_label"] for results in SIMULATION_ROW_RESULTS]
+        mean_values[prefix+"_Mode_Labels"] = [results[prefix+"_Simulation"]["mode_label"] for results in SIMULATION_ROW_RESULTS]
+        mean_values[prefix+"_Probability_Labels"] = [results[prefix+"_Simulation"]["probability_label"] for results in SIMULATION_ROW_RESULTS]
+        
+    return SIMULATION_ROW_RESULTS, mean_values
+
+  
+    
+  

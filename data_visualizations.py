@@ -216,7 +216,7 @@ def plot_history(history, smooth=False, log_scale=False, model_type=None):
                 metric_values = values
 
             ax.plot(range(1, len(metric_values) + 1), metric_values, label='Training ' + metric_labels[metric])
-
+                
             val_metric = 'val_' + metric
             if val_metric in history.history:
                 val_metric_values = history.history[val_metric]
@@ -299,7 +299,7 @@ def simulation_hist_plot(simulation_row_results, y_original, original_metrics, p
             
             if data["0_Overall_Row_Data"]["0.1_row_id"] == row:
                 
-                print("Printing plot for row: " + str(data["0_Overall_Row_Data"]["0.1_row_id"]))
+                #print("Printing hist-plot for row: " + str(data["0_Overall_Row_Data"]["0.1_row_id"]))
                 simulation_row_results = data
                 break
                 
@@ -408,7 +408,7 @@ def simulation_kde_plot(x_axis, simulation_row_results, y_original, original_met
             
             if data["0_Overall_Row_Data"]["0.1_row_id"] == row:
                 
-                print("Printing plot for row: " + str(data["0_Overall_Row_Data"]["0.1_row_id"]))
+                #print("Printing kde-plot for row: " + str(data["0_Overall_Row_Data"]["0.1_row_id"]))
                 simulation_row_results = data
                 break
                 
@@ -431,20 +431,20 @@ def simulation_kde_plot(x_axis, simulation_row_results, y_original, original_met
     """
 
     # KDE Distributions
-    plt.plot(x_axis, uncertain_row["pdfs"], 
+    plt.plot(uncertain_row["pdf_x_axis"], uncertain_row["kde_pdf_y_axis"], 
              label="Uncertain KDE Distribution", linewidth=5,
              color = "black", alpha=0.3, linestyle = "--")
     
-    plt.plot(x_axis, original_row["pdfs"], 
+    plt.plot(original_row["pdf_x_axis"], original_row["kde_pdf_y_axis"], 
              label="Original KDE Distribution", linewidth=2,
              color = "black", alpha=0.55, linestyle = "--")
 
 
     plt.axvline(x=uncertain_row["mean"], linewidth=5, linestyle = "-.", color = "black", 
-                alpha=0.3, ymin = 0, ymax = uncertain_row["pdfs"][int(uncertain_row["mean"]*len(x_axis))]-0.1, label="Uncert. Sim. Mean") 
+                alpha=0.3, ymin = 0, ymax = uncertain_row["kde_pdf_y_axis"][int(uncertain_row["mean"]*len(uncertain_row["pdf_x_axis"]))]-0.1, label="Uncert. Sim. Mean") 
     
     plt.axvline(x=original_row["mean"], linewidth=2, linestyle = "-", color = "black", 
-                alpha=0.7, ymin = 0, ymax = original_row["pdfs"][int(original_row["mean"]*len(x_axis))]-0.1, label="Orig. Sim. Mean") 
+                alpha=0.7, ymin = 0, ymax = original_row["kde_pdf_y_axis"][int(original_row["mean"]*len(original_row["pdf_x_axis"]))]-0.1, label="Orig. Sim. Mean") 
   
 
     ## Max Density Vertical Lines
@@ -464,6 +464,7 @@ def simulation_kde_plot(x_axis, simulation_row_results, y_original, original_met
                 linewidth=5, linestyle = "-", 
                 color = "green", label="Original Label")
     
+    
     plt.axvline(x=original_metrics["y_hat"][info["0.1_row_id"]], 
                 linewidth=3, alpha=1, linestyle = "--", 
                 color = "red", label="Predicted Model Label")
@@ -479,7 +480,7 @@ def simulation_kde_plot(x_axis, simulation_row_results, y_original, original_met
     plt.legend(bbox_to_anchor=(1.04, 0.5), loc="center left")
     plt.xlabel('Sigmoid Activation')
     plt.ylabel('Density')
-    plt.ylim([0, max(max(uncertain_row["pdfs"]), max(original_row["pdfs"])) + 0.1])
+    plt.ylim([0, max(max(uncertain_row["kde_pdf_y_axis"]), max(original_row["kde_pdf_y_axis"])) + 0.1])
     plt.show()
     
     
