@@ -12,7 +12,7 @@ import sys
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 from pathlib import Path
-
+from sklearn.preprocessing import LabelEncoder
 from utils import add_missing_values
 
 
@@ -102,9 +102,9 @@ def load_climate_simulation():
     
     
     # set datatypes for each attribute
-    datatypes=["Categorical", "Continuous", "Continuous", "Categorical", "Categorical", "Categorical", "Continuous", 
-                "Categorical", "Categorical", "Continuous", "Categorical", "Categorical", "Continuous", "Continuous",
-                "Categorical"]
+    datatypes=["Continuous", "Continuous", "Continuous", "Continuous", "Continuous", "Continuous", "Continuous", 
+               "Continuous", "Continuous", "Continuous", "Continuous", "Continuous", "Continuous", "Continuous",
+               "Continuous", "Continuous", "Continuous", "Continuous", "Categorical"]
     
     return df, datatypes
 
@@ -126,6 +126,73 @@ def load_australian():
     return df, datatypes
 
 
+def load_german():
+    
+    path = get_dataset_path()
+    
+    with open(os.path.join(path, "german" + ".data"), 'rb') as df:
+        df = pd.read_table(df, sep=" ")    
+    
+    le = LabelEncoder()
+    
+    # Convert categorical data to numerical data using cat.codes
+    df['A11'] = df['A11'] = le.fit_transform(df['A11'])
+    df['A34'] = df['A34'] = le.fit_transform(df['A34'])
+    df['A43'] = df['A43'] = le.fit_transform(df['A43'])
+    df['A65'] = df['A65'] = le.fit_transform(df['A65'])
+    df['A75'] = df['A75'] = le.fit_transform(df['A75'])
+    df['A93'] = df['A93'] = le.fit_transform(df['A93'])
+    df['A101'] = df['A101'] = le.fit_transform(df['A101'])
+    df['A143'] = df['A143'] = le.fit_transform(df['A143'])
+    df['A152'] = df['A152'] = le.fit_transform(df['A152'])
+    df['A173'] = df['A173'] = le.fit_transform(df['A173'])
+    df['A192'] = df['A192'] = le.fit_transform(df['A192'])
+    df['A201'] = df['A201'] = le.fit_transform(df['A201'])
+    
+    df['1.1'] = df['1.1'] = le.fit_transform(df['1.1'])
+    
+    # set datatypes for each attribute
+    datatypes=["Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", 
+               "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical",
+               "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical"]
+    
+    return df, datatypes
+
+
+"""
+def load_bank():
+    
+    path = get_dataset_path()
+    
+    with open(os.path.join(path, "bank" + ".csv"), 'rb') as df:
+        df = pd.read_csv(df, sep=";", engine="python")
+    
+    le = LabelEncoder()
+    
+    # Convert categorical data to numerical data using cat.codes
+    df['job'] = df['job'] = le.fit_transform(df['job'])
+    
+    df['marital'] = df['marital'] = le.fit_transform(df['marital'])
+    df['education'] = df['education'] = le.fit_transform(df['education'])
+    df['default'] = df['default'] = le.fit_transform(df['default'])
+    
+    df['housing'] = df['housing'] = le.fit_transform(df['housing'])
+    df['loan'] = df['loan'] = le.fit_transform(df['loan'])
+    df['contact'] = df['contact'] = le.fit_transform(df['contact'])
+    df['month'] = df['month'] = le.fit_transform(df['month'])
+    df['poutcome'] = df['poutcome'] = le.fit_transform(df['poutcome'])
+    df['y'] = df['y'] = le.fit_transform(df['y'])
+
+    df.hist()
+    
+    # set datatypes for each attribute
+    datatypes=["Continuous", "Categorical", "Categorical", "Categorical", "Categorical", "Continuous", "Categorical", 
+               "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Continuous",
+               "Categorical", "Categorical", "Categorical"]
+    
+    return df, datatypes
+"""
+
 
 def load_dataframe(dataframe_name, standardize_data):
     
@@ -135,6 +202,10 @@ def load_dataframe(dataframe_name, standardize_data):
     elif dataframe_name == "climate_simulation": dataframe, datatypes = load_climate_simulation()
 
     elif dataframe_name == "australian": dataframe, datatypes = load_australian()
+    
+    elif dataframe_name == "german": dataframe, datatypes = load_german()  
+    
+    elif dataframe_name == "bank": dataframe, datatypes = load_bank()
 
     else: 
         print("No valid dataset found!")
