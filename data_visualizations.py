@@ -20,8 +20,8 @@ image_path = os.path.join(os.getcwd(), 'images')
 def remove_images(image_path=image_path):
     
     remove = [os.remove(os.path.join(image_path, 'simulation_rows_hist', fname)) for fname in os.listdir(os.path.join(image_path, 'simulation_rows_hist')) if fname.endswith('.png')]
-    remove = [os.remove(fname) for fname in os.listdir(os.path.join(image_path, 'simulation_rows_kde')) if fname.endswith('.png')]
-    remove = [os.remove(fname) for fname in os.listdir(image_path) if fname.endswith('.png')]
+    remove = [os.remove(os.path.join(image_path, 'simulation_rows_kde', fname)) for fname in os.listdir(os.path.join(image_path, 'simulation_rows_kde')) if fname.endswith('.png')]
+    remove = [os.remove(os.path.join(image_path, fname)) for fname in os.listdir(image_path) if fname.endswith('.png')]
 
 
 def plot_dataframe(dataframe, column_names, title):
