@@ -88,7 +88,7 @@ _RANDOM_STATE = 42
 
 
 #choose working dataset: choose one of the datasets above
-_dataset = "australian"
+_dataset = "wdbc"
 _simulate_test_set = False
 
 
@@ -116,11 +116,11 @@ _load_old_model = True
 
 # load uncertain dataset // if True, an already created one will be loaded
 _load_dataframe_miss = True
-_create_dataframe_miss = True
+_create_dataframe_miss = False
 
 # metrics for new uncertain dataframe creation // "static" (amount of values in each row) // "percentage" (value between 0 and 1, randomly)
 _DELETE_MODE = "static"     
-_MISS_RATE = 3
+_MISS_RATE = 15
 
 
 # Visual KDE_VALUES of each column of a data set (these will be used for continious sampling) 
@@ -130,28 +130,28 @@ _normalize_kde= True # setting this to false could break the plots
 
 
 # deterministic imputation of missing values
-_IMPUTE = False
+_IMPUTE = True
 
 # stochastic imputation (simulation) of uncertain data
 _SIMULATE = True
 
 # mode of simulation // Monte Carlo Sampling or Latin Hypercube Sampling available
-_monte_carlo = False
-_latin_hypercube = True
+_monte_carlo = True
+_latin_hypercube = False
 _LHS_MODE = "fast" # makes differnce in cdf computation // recomended -> fast
 _visualize_lhs_samples = False
 
 
 # further Simulation metrics
-_SIMULATION_LENGTH = 5
-#_SIMULATION_RANGE = None
-_SIMULATION_RANGE = range(0, 5, 1) # if set to None -- all rows will be simulated
+_SIMULATION_LENGTH = 100000
+_SIMULATION_RANGE = None
+#_SIMULATION_RANGE = range(0, 5, 1) # if set to None -- all rows will be simulated
 
 
 _simulation_visualizations = False
 
 
-_save_simulated_results = False
+_save_simulated_results = True
 _load_simulated_results = False
 _load_results_id = 0
 
@@ -331,7 +331,6 @@ if _visiualize_data:
     dvis.plot_frame_comparison(data={"DATAFRAME_ORIGINAL" : np.array(DATAFRAME_ORIGINAL.iloc[:,:-1]).flatten(), 
                                      "DATAFRAME_MISS" : np.array(DATAFRAME_MISS.iloc[:,:-1]).flatten()},
                                title='Original & Uncertain dataset as flattened histplot')
-
 
 
 
