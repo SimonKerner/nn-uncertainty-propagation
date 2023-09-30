@@ -227,46 +227,58 @@ def kde_latin_hypercube_sampler(kde_collection, sim_length, random_state, mode="
 
 def categorical_latin_hypercube_sampler(dataframe, key, sim_length, random_state):
     
-    pass
-    
     """
     dataframe = DATAFRAME_ORIGINAL 
     key = "Attribute: 4"
-    sim_length=_SIMULATION_LENGTH
+    sim_length=100#_SIMULATION_LENGTH
     random_state = _RANDOM_STATE
+    """
     
     # get frame column wit categorical data 
-    column = dataframe.loc[:,key]
+    column_values = dataframe.loc[:,key]
     
     # get unique values and normalize to probabilities // nan values get deleted
-    unique = column.value_counts(normalize=True).sort_index()
-
-    categories = np.array(list(unique.index))
-    probabilities = unique.values
+    unique_values = column_values.value_counts(normalize=True).sort_index()
     
+    # get sorted categories & probabilities
+    categories = np.array(list(unique_values.index))
+    probabilities = unique_values.values
+    
+    # create cummulative probabilities
     cum_probs = np.cumsum(probabilities)
     
-    # TODO
-
+    
+    # latin hyper cube sampling down below
 
     # sample in 1-dimension with specific simulation length
     lhs_sampler = stats.qmc.LatinHypercube(1, seed=random_state)
     lhs_sample = lhs_sampler.random(n=sim_length) 
 
-    # scale the created lhs samples to min and max cdf values
-    lhs_sample_scaled = stats.qmc.scale(lhs_sample, min(cum_probs), max(cum_probs)).flatten()
-
-
-    hist = np.histogram(lhs_sample_scaled, cum_probs)
-    sns.histplot(hist[0], bins=len(categories))
-
-        
-    return None#generate_samples
+    # create bins out of lhs samples with corresponding cummulative probabilities
+    value_bins = np.searchsorted(cum_probs, lhs_sample)
+    
+    # get corresponding samples from categories list
+    cat_lhs_samples = categories[value_bins]
+    
     """
+    # visual comparison
+    plt.hist(column_values, density=True)
+    plt.title("Original data distribution")
+    plt.show()
+   
+    
+    plt.hist(samples, density=True)
+    plt.title("Latin hypercube sample (sample length" + str(sim_length) + ")")
+    plt.show()
+    """
+  
+    return cat_lhs_samples
+    
+    
     
     
 
-def categorical_distribution_sample(dataframe, key, sim_length):
+def categorical_distribution_sample(dataframe, key, sim_length, random_state):
     
     """
     dataframe = DATAFRAME_ORIGINAL 
@@ -287,8 +299,23 @@ def categorical_distribution_sample(dataframe, key, sim_length):
     # get probabilities of catagories
     probabilities = unique.values
     
-    # sample from categories with corresponding probability
+    # randomly sample from categories with corresponding probability
+    if random_state is None: pass
+    else: np.random.seed(random_state)
+    
     draw_sample = np.random.choice(categories, sim_length, p=probabilities)
+    
+    """
+    # visual comparison
+    plt.hist(column, density=True)
+    plt.title("Original data distribution")
+    plt.show()
+       
+    
+    plt.hist(draw_sample)
+    plt.title("Monte carlo sample (sample length" + str(sim_length) + ")")
+    plt.show()
+    """
     
     return draw_sample  
 
@@ -317,6 +344,8 @@ def adjust_edgeweight(y_hat, bw_method):
 
 
 
+
+
 def generate_simulation_sample_collection(uncertain_attributes, dataframe_categorical, kde_collection, monte_carlo, latin_hypercube, standardize_data, datatype_map, column_names,
                                           simulation_length, random_state, lhs_mode, visualize_lhs_samples, lhs_prefix="None"):
     
@@ -341,11 +370,19 @@ def generate_simulation_sample_collection(uncertain_attributes, dataframe_catego
             # sample from categorical distribution
             if datatype_map[key] == "Categorical":
 
-                # random samples from with respective probabilities
-                categorical_sample = categorical_distribution_sample(dataframe_categorical, key, simulation_length)
+                if monte_carlo:
+    
+                    # random samples from with respective probabilities
+                    categorical_sample = categorical_distribution_sample(dataframe_categorical, key, simulation_length, random_state=adjusted_random_state)
+                    
+                    
+                if latin_hypercube:
+                
+                    categorical_sample = categorical_latin_hypercube_sampler(dataframe_categorical, key, simulation_length, random_state=adjusted_random_state)
                 
                 # append draws to collection
                 sample_collection.append(categorical_sample)
+
 
 
             # sample from categorical distribution // KDE Distributions

@@ -87,7 +87,7 @@ _RANDOM_STATE = 42
 
 
 #choose working dataset: choose one of the datasets above
-_dataset = "wdbc"
+_dataset = "bank-additional"
 _simulate_test_set = False
 
 
@@ -129,10 +129,10 @@ _normalize_kde= True # setting this to false could break the plots
 
 
 # deterministic imputation of missing values
-_IMPUTE = True
+_IMPUTE = False
 
 # stochastic imputation (simulation) of uncertain data
-_SIMULATE = True
+_SIMULATE = False
 
 # mode of simulation // Monte Carlo Sampling or Latin Hypercube Sampling available
 _monte_carlo = True
@@ -156,7 +156,7 @@ _load_results_id = 0
 
 
 # revove old images in image folder
-dvis.remove_images()
+#dvis.remove_images()
 
 ##########################################################################################################################
 """
@@ -167,8 +167,10 @@ DATAFRAME_ORIGINAL, datatype_map = load_dataframe(_dataset, _standardize_data)
 _column_names = DATAFRAME_ORIGINAL.columns
 _unique_outcomes = len(DATAFRAME_ORIGINAL.Outcome.unique())
 
+   
+DATAFRAME_ORIGINAL.hist()
     
-
+sys.exit()
 ##########################################################################################################################
 """
     # visiualize true underlying data of Dataframe 
@@ -413,7 +415,7 @@ if _IMPUTE:
     
     
     """
-        # multiple imputation technique --> MICE Algo.
+        # multiple imputation technique 
     """
     _iter_start_sample_time = time.time()
     
