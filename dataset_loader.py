@@ -194,6 +194,36 @@ def load_bank():
 """
 
 
+
+def load_students():
+    
+    path = get_dataset_path()
+    
+    # load dataset     
+    with open(os.path.join(path, "predict+students+dropout+and+academic+success" + ".csv"), 'rb') as df:
+        df = pd.read_csv(df, sep=";", engine="python")
+
+    # change target names to numerical value
+    df.iloc[:,-1].replace(['Dropout', 'Enrolled', "Graduate"], [0, 1, 2], inplace=True)  
+    
+    # set datatypes for each attribute
+    datatypes=["Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Continuous", 
+               
+               "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Continuous", "Categorical",
+               
+               "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical",
+                
+               "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", 
+                
+               "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Continuous", "Continuous",
+                
+               "Continuous", "Categorical"]
+    
+    return df, datatypes
+
+
+
+
 def load_dataframe(dataframe_name, standardize_data):
     
     # choose datased to load
@@ -205,7 +235,9 @@ def load_dataframe(dataframe_name, standardize_data):
     
     elif dataframe_name == "german": dataframe, datatypes = load_german()  
     
-    elif dataframe_name == "bank": dataframe, datatypes = load_bank()
+    elif dataframe_name == "students": dataframe, datatypes = load_students()
+    
+    #elif dataframe_name == "bank": dataframe, datatypes = load_bank()
 
     else: 
         print("No valid dataset found!")

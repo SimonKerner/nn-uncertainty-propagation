@@ -10,35 +10,44 @@ import sys
 import pickle
 
 from tqdm import tqdm
-import time
 
-import utils
 from pathlib import Path
+import utils
+import data_visualizations as dvis
+from dataset_loader import load_dataframe
+from dataset_loader import load_miss_dataframe
+from model_loader import create_binary_model
+from model_loader import load_binary_model
+
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+
 import numpy as np
 import pandas as pd
 
 import matplotlib.pyplot as plt
-import seaborn as sns
+#import seaborn as sns
+import time
 
-from sklearn.metrics import mean_squared_error as mse
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 
-
-import tensorflow_probability as tfp
+from sklearn.metrics import mean_squared_error as mse
+#import tensorflow_probability as tfp
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 
+#from sklearn.metrics import classification_report
 
 from sklearn.impute import SimpleImputer
 from sklearn.impute import KNNImputer
-
+from sklearn.metrics import roc_auc_score, roc_curve, average_precision_score, precision_recall_curve
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 
-import statsmodels.api as sm
+import seaborn as sns
+#import statsmodels.api as sm
 
 import scipy
 import scipy.stats as stats
@@ -51,8 +60,6 @@ from scipy.special import ndtr
 ##########################################################################################################################
 
 
-# set path to different folders
-_dataset_path = os.path.join(os.getcwd(), 'datasets')
 #image_path = os.path.join(os.getcwd(), 'images')
 _model_path = os.path.join(os.getcwd(), 'models')
 _results_path = os.path.join(os.getcwd(), 'sim_results')
@@ -66,7 +73,7 @@ information about the datasets:
     -[1] wdbc - all attributes are considered continious - outcome is binary 
     -[2] climate_simulation - 
     -[3] australian - 
-    -[4] predict+students+dropout+and+academic+success - three outcomes
+    -[4] predict+students+dropout+and+academic+success - three outcomes aka. "students"
     
 following all the different settings for this simulation run can be found
     -dataset = "choose dataset"
@@ -75,16 +82,16 @@ following all the different settings for this simulation run can be found
 ##########################################################################################################################
 
 #choose working dataset: "australian" or "climate_simulation", "wdbc" -> Breast Cancer Wisconsin (Diagnostic)
-_dataset = "predict+students+dropout+and+academic+success"
-
+_dataset = "students"
+_simulate_test_set = False
 
 # set random state          
-_RANDOM_STATE = 24
+_RANDOM_STATE = 42
 
 # other constants
 _INIT_DATA_BANDWIDTH = None
 _PRED_BANDWIDTH = None # --> if None (default) "scott" is used
-#_KDE_WEIGHTS = None
+
 
 
 # further dataset settings
@@ -98,8 +105,8 @@ _visualize_imputed_predictions = True
 
 
 # train or load model
-_train_model = True
-_save_new_model = True
+_train_model = False
+_save_new_model = False
 _load_model = True
 
 
@@ -138,7 +145,7 @@ _SIMULATION_RANGE = range(0, 2, 1)
 _simulation_visualizations = True
 _norm= True
 _save_simulated_results = False
-
+_visualize_lhs_samples =False
 _load_simulated_results = False
 _load_results_id = 0
 
@@ -150,60 +157,11 @@ _load_results_id = 0
 ##########################################################################################################################
 
     
-# load dataset
-if _dataset == "predict+students+dropout+and+academic+success":
-    
-    with open(os.path.join(_dataset_path, _dataset + ".csv"), 'rb') as DATAFRAME_ORIGINAL:
-        DATAFRAME_ORIGINAL = pd.read_csv(DATAFRAME_ORIGINAL, sep=";", engine="python")
-
-    # change target names to numerical value
-    DATAFRAME_ORIGINAL.iloc[:,-1].replace(['Dropout', 'Enrolled', "Graduate"], [0, 1, 2], inplace=True)
-
-
-else:
-    print("No valid dataset found!")
-    
-  
-    
-  
-"""
-    change all column names to standardized attribute names
-"""  
-    
-_column_names = ["Attribute: " + str(i) for i in range(len(DATAFRAME_ORIGINAL.columns))]
-_column_names[-1] = "Outcome"
-DATAFRAME_ORIGINAL.columns = _column_names    
-
+DATAFRAME_ORIGINAL, datatype_map = load_dataframe(_dataset, _standardize_data)
+_column_names = DATAFRAME_ORIGINAL.columns
 _unique_outcomes = len(DATAFRAME_ORIGINAL.Outcome.unique())
 
-##########################################################################################################################
-"""
-    # standardization of values for better performance
-"""
-##########################################################################################################################
     
-
-if _standardize_data:
-    
-    # use data scaler to norm the data (scaler used = MinM_axsclaer, values between 0 and 1)
-    _scaler = MinMaxScaler()
-    
-    # steps for multi-label dataframe scaling
-    # 1. drop outcome (labels shoud not be scaled)  
-    y_original = DATAFRAME_ORIGINAL.iloc[:,-1].copy()
-    DATAFRAME_ORIGINAL = DATAFRAME_ORIGINAL.iloc[:,:-1].copy()
-    
-    # 2. scale rest of dataframe
-    DATAFRAME_ORIGINAL = pd.DataFrame(_scaler.fit_transform(DATAFRAME_ORIGINAL))
-    
-    # 3. add unscaled outcome back to scaled dataframe && and column names
-    DATAFRAME_ORIGINAL = DATAFRAME_ORIGINAL.merge(y_original, left_index=True, right_index=True)
-    DATAFRAME_ORIGINAL.columns = _column_names
-
-
-DATAFRAME_ORIGINAL_STATS = DATAFRAME_ORIGINAL.describe()
-
-
 
 
 ##########################################################################################################################
@@ -323,7 +281,7 @@ if _train_model:
 
 
     # plot model
-    utils.plot_history(model_history, model_type="multi")
+    dvis.plot_history(model_history, model_type="multi")
     
 
 
@@ -417,45 +375,15 @@ if _get_original_prediction_metrics:
 ##########################################################################################################################
 
 
-# second part is a statement to check if a dataframe really exists and if not, a new one will be created even if load is true
-if _load_dataframe_miss and Path(os.path.join(_dataset_path, "miss_frames", _dataset, _dataset + "_miss_rate_" + str(_MISS_RATE) + ".dat")).exists() and _create_dataframe_miss==False:
-  
-    """
-        already created DATAFRAME_MISS will be loaded
-    """
-
-    DATAFRAME_MISS = pd.read_pickle(os.path.join(_dataset_path, "miss_frames", _dataset, _dataset + "_miss_rate_" + str(_MISS_RATE) + ".dat"))    
-    
-    
-elif _create_dataframe_miss:
-    
-    """
-        a new DATAFRAME_MISS will be created and saved
-    """
-    
-    # if dataset folder does not exist, create a new one
-    if Path(os.path.join(_dataset_path, "miss_frames", _dataset)).exists() == False:
-        os.mkdir(os.path.join(_dataset_path, "miss_frames", _dataset)) 
-    
-    DATAFRAME_MISS = utils.add_missing_values(DATAFRAME_ORIGINAL, delete_mode =_DELETE_MODE, miss_rate=_MISS_RATE, random_seed=_RANDOM_STATE) 
-
-    # save DATAFRAME_MISS to pickle.dat 
-    DATAFRAME_MISS.to_pickle(os.path.join(_dataset_path, "miss_frames", _dataset, _dataset + "_miss_rate_" + str(_MISS_RATE) + ".dat"))
-     
+"""
+        # Here in this step a new DATAFRAME is introduced. 
+        # This contains missing data with a specific missing rate in each row
+"""
 
 
-print("\nDataframe Statistics:")
-print("Size of Original Dataframe:", DATAFRAME_ORIGINAL.size)
-print(f"Deletion Settings: Mode={_DELETE_MODE} and Rate={_MISS_RATE}")
-print("Deleted:", round(DATAFRAME_MISS.isnull().sum().sum()), "Values from Original")
-# missing values per column
-#DATAFRAME_MISS.isnull().mean() * 100
-print("Missing data: ~" + str(round(DATAFRAME_MISS.isnull().sum().sum() * 100 / DATAFRAME_ORIGINAL.size, 2)), "%\n")
+DATAFRAME_MISS = load_miss_dataframe(_dataset, DATAFRAME_ORIGINAL, _MISS_RATE, _DELETE_MODE, _RANDOM_STATE,
+                                     _load_dataframe_miss, _create_dataframe_miss, _simulate_test_set)
 
-
-
-# get statistics of DATAFRAME_MISS
-DATAFRAME_MISS_STATS = DATAFRAME_MISS.describe()
 
 
 
@@ -509,57 +437,83 @@ if _visiualize_data:
     
 if _IMPUTE:
     
-    # mean imputation
+    """
+        # mean imputation
+    """
+    _mean_start_sample_time = time.time()
+    
     _mean_imp = SimpleImputer(strategy="mean")
     _DATAFRAME_MEAN_IMPUTE = pd.DataFrame(_mean_imp.fit_transform(DATAFRAME_MISS.copy()), columns=_column_names)
     
-    _INPUT_RMSE_MEAN = mse(DATAFRAME_ORIGINAL, _DATAFRAME_MEAN_IMPUTE, squared=False)
+    _mean_end_sample_time = time.time() - _mean_start_sample_time
+
     
-    # median imputation
+    """
+        # median imputation
+    """
+    _median_start_sample_time = time.time()
+    
     _median_imp = SimpleImputer(strategy="median")
     _DATAFRAME_MEDIAN_IMPUTE = pd.DataFrame(_median_imp.fit_transform(DATAFRAME_MISS.copy()), columns=_column_names)
 
-    _INPUT_RMSE_MEDIAN = mse(DATAFRAME_ORIGINAL, _DATAFRAME_MEDIAN_IMPUTE, squared=False)
+    _median_end_sample_time = time.time() - _median_start_sample_time
 
-    # mode imputation
+    
+    """
+        # mode imputation
+    """
+    _mode_start_sample_time = time.time()
+    
     _mode_imp = SimpleImputer(strategy="most_frequent")
     _DATAFRAME_MODE_IMPUTE = pd.DataFrame(_mode_imp.fit_transform(DATAFRAME_MISS.copy()), columns=_column_names)
     
-    _INPUT_RMSE_MODE = mse(DATAFRAME_ORIGINAL, _DATAFRAME_MODE_IMPUTE, squared=False)
+    _mode_end_sample_time = time.time() - _mode_start_sample_time
     
-    # knn imputation
+
+    """
+        # knn imputation
+    """
+    _knn_start_sample_time = time.time()
+    
     _knn_imp = KNNImputer(n_neighbors=5)
-    _DATAFRAME_KNN_IMPUTE = pd.DataFrame(_knn_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1])
+    _DATAFRAME_KNN_IMPUTE = pd.DataFrame(_knn_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1], index=X_original.index)
     _DATAFRAME_KNN_IMPUTE = _DATAFRAME_KNN_IMPUTE.merge(DATAFRAME_ORIGINAL["Outcome"], left_index=True, right_index=True)
     
-    _INPUT_RMSE_KNNIMP = mse(DATAFRAME_ORIGINAL, _DATAFRAME_KNN_IMPUTE, squared=False)
-
-
-    # multiple imputation technique --> MICE Algo.
+    _knn_end_sample_time = time.time() - _knn_start_sample_time
+    
+    
+    """
+        # multiple imputation technique 
+    """
+    _iter_start_sample_time = time.time()
+    
     _iter_imp = IterativeImputer(max_iter=10, random_state=_RANDOM_STATE)
-    _DATAFRAME_ITER_IMPUTE = pd.DataFrame(_iter_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1])
+    _DATAFRAME_ITER_IMPUTE = pd.DataFrame(_iter_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1], index=X_original.index)
     _DATAFRAME_ITER_IMPUTE = _DATAFRAME_ITER_IMPUTE.merge(DATAFRAME_ORIGINAL["Outcome"], left_index=True, right_index=True)
 
-    _INPUT_RMSE_ITERIMP = mse(DATAFRAME_ORIGINAL, _DATAFRAME_ITER_IMPUTE, squared=False)
-
-
-
-    DATAFRAME_IMPUTE_COLLECTION = {"MEAN_IMPUTE" : _DATAFRAME_MEAN_IMPUTE,
-                               "MEDIAN_IMPUTE" : _DATAFRAME_MEDIAN_IMPUTE,
-                               "MODE_IMPUTE" : _DATAFRAME_MODE_IMPUTE,
-                               "KNN_IMPUTE" : _DATAFRAME_KNN_IMPUTE,
-                               "ITER_IMPUTE" : _DATAFRAME_ITER_IMPUTE}
+    _iter_end_sample_time = time.time() - _iter_start_sample_time
+    
+    time.sleep(1)
     
     
-if _SIMULATE:
-    _DATAFRAME_SIMULATE = DATAFRAME_MISS.copy()
-    _SIMULATE_METHOD = "KDE_Simulation"
-
-
-# exit if statement if no further simulations will be made
-if _IMPUTE == False and _SIMULATE == False:
-    sys.exit()
-
+    _DATAFRAME_IMPUTE_COLLECTION = {"MEAN_IMPUTE" : _DATAFRAME_MEAN_IMPUTE,
+                                    "MEDIAN_IMPUTE" : _DATAFRAME_MEDIAN_IMPUTE,
+                                    "MODE_IMPUTE" : _DATAFRAME_MODE_IMPUTE,
+                                    "KNN_IMPUTE" : _DATAFRAME_KNN_IMPUTE,
+                                    "ITER_IMPUTE" : _DATAFRAME_ITER_IMPUTE}
+    
+    _IMPUTE_TIMES = {"MEAN_IMPUTE" : _mean_end_sample_time,
+                     "MEDIAN_IMPUTE" : _median_end_sample_time,
+                     "MODE_IMPUTE" : _mode_end_sample_time,
+                     "KNN_IMPUTE" : _knn_end_sample_time,
+                     "ITER_IMPUTE" : _iter_end_sample_time}
+    
+    _IMPUTE_RMSE = {"MEAN_IMPUTE" : mse(DATAFRAME_ORIGINAL, _DATAFRAME_MEAN_IMPUTE, squared=False),
+                     "MEDIAN_IMPUTE" : mse(DATAFRAME_ORIGINAL, _DATAFRAME_MEDIAN_IMPUTE, squared=False),
+                     "MODE_IMPUTE" : mse(DATAFRAME_ORIGINAL, _DATAFRAME_MODE_IMPUTE, squared=False),
+                     "KNN_IMPUTE" :  mse(DATAFRAME_ORIGINAL, _DATAFRAME_KNN_IMPUTE, squared=False),
+                     "ITER_IMPUTE" : mse(DATAFRAME_ORIGINAL, _DATAFRAME_ITER_IMPUTE, squared=False)}
+    
 
 
 
@@ -574,12 +528,12 @@ if _IMPUTE:
     
     DATAFRAME_IMPUTE_RESULTS_COLLECTION = {}
     
-    for _frame_key in DATAFRAME_IMPUTE_COLLECTION:
+    for _frame_key in _DATAFRAME_IMPUTE_COLLECTION:
         
         print(f"Calculating results for dataframe: {_frame_key}")
         
         # create input frame for model predictions
-        _X_impute = DATAFRAME_IMPUTE_COLLECTION[_frame_key].iloc[:, 0:-1]
+        _X_impute = _DATAFRAME_IMPUTE_COLLECTION[_frame_key].iloc[:, 0:-1]
          
         # get results of prediction 
         _y_impute_hat = model.predict(_X_impute)#.flatten()
@@ -642,44 +596,30 @@ if _IMPUTE:
 
 if _SIMULATE:
     
-    """
-        KDE COLLECTION -- ORIGINAL 
-        --> is equal to the true distribution of the underlying data of the specific dataset
-        --> to be able to get the true distribution we will use the original dataset with full certain data and no missing values
-    """
+    print("\nPredictions for dataset with uncertainties and simulated values:")
+    
+    _DATAFRAME_SIMULATE = DATAFRAME_MISS.copy()
+    _SIMULATE_METHOD = "KDE_Simulation"
 
 
-    kde_collection_original = []
-    
-    for _column in _column_names:
-        
-        # get the kde of all values inside a column of the dataset
-        _column_values = DATAFRAME_ORIGINAL[_column].values
-        
-        kde = stats.gaussian_kde(_column_values, bw_method=_INIT_DATA_BANDWIDTH)   
-        kde_collection_original.append(kde)
-        
-        
-    
-    
     """
-        KDE COLLECTION -- UNCERTAIN 
-        --> is equal to the uncertain distribution of the underlying data of the specific dataset with missing values
-        --> for the uncertain distribution we will use the dataset including missing data (=uncertain data) 
-        --> for computing, all of the missing data has to be dropped first, to retrieve the uncertain distribution of the rest
+            KDE COLLECTION -- ORIGINAL 
+            --> is equal to the true distribution of the underlying data of the specific dataset
+            --> to be able to get the true distribution we will use the original dataset with full certain data and no missing values
+    """
+
+    kde_collection_original = utils.kde_collection_creator(DATAFRAME_ORIGINAL, _column_names, _INIT_DATA_BANDWIDTH)
+    
+       
+    """
+            KDE COLLECTION -- UNCERTAIN 
+            --> is equal to the uncertain distribution of the underlying data of the specific dataset with missing values
+            --> for the uncertain distribution we will use the dataset including missing data (=uncertain data) 
+            --> for computing, all of the missing data has to be dropped first, to retrieve the uncertain distribution of the rest
     """
     
-    
-    kde_collection_uncertain = []
-    
-    for _column in _column_names:
-        
-        # drop all missing values and get kde of remaining values inside a column
-        _column_values = _DATAFRAME_SIMULATE[_column].dropna().values
-        
-        kde = stats.gaussian_kde(_column_values, bw_method=_INIT_DATA_BANDWIDTH)   
-        kde_collection_uncertain.append(kde)
-        
+    kde_collection_uncertain = utils.kde_collection_creator(_DATAFRAME_SIMULATE, _column_names, _INIT_DATA_BANDWIDTH)
+
         
 
 
@@ -745,18 +685,6 @@ if _SIMULATE:
 
 
 
-    """
-        main collection of kde distributions 
-    """
-
-    # to convert lists to dictionary
-    kde_collection_original = {_column_names[i]: kde_collection_original[i] for i in range(len(_column_names))}
-        
-    # to convert lists to dictionary
-    kde_collection_uncertain = {_column_names[i]: kde_collection_uncertain[i] for i in range(len(_column_names))}
-
-
-
 
 ##########################################################################################################################
 # experiments modul 2 - with simulation --> missing data (row wise) --> useage of kde of columns to simulate outcome
@@ -767,6 +695,8 @@ if _SIMULATE == True:
     
     print("\nPredictions for dataset with uncertainties and simulated values:")
     
+
+
     # step 0 --> first for loop for getting row and simulating this specific row
     
     if _SIMULATION_RANGE == None:
@@ -777,89 +707,7 @@ if _SIMULATE == True:
         some necessary variables and for further computation or history collection
     """
     
-    def kde_latin_hypercube_sampler(kde_collection, sim_length, random_state, mode="fast", visualize_lhs_samples=False, attribute_key=""):
-        
-        ###
-            ### FUNCTION PART 1 --> KDE METRICS
-        ###
-        
-        if mode =="accurate":
-            
-            # get statsmodels kde of underlying scipy gaussian kde dataset
-            kde_fit = sm.nonparametric.KDEUnivariate(kde_collection.dataset.flatten())
-            kde_fit.fit()
-            
-            support = kde_fit.support
-            cdf = kde_fit.cdf
-        
-        
-        if mode=="fast":
-            
-            # @https://stackoverflow.com/a/47419857
-            stdev = np.sqrt(kde_collection.covariance)[0, 0]
-            support = np.linspace(0, 1, kde_collection_uncertain[_key].n)
-            cdf = ndtr(np.subtract.outer(support, kde_collection.dataset.flatten())/stdev).mean(axis=1)
-            
-
-        
-        # preprocessing of cdf values --> drop duplicates in cdf and support,
-        # if not, there could be problems with interpolation
-        preproc = pd.DataFrame(data={"cdf" : cdf,  
-                                     "support" : support})  
-        
-        preproc = preproc.copy().drop_duplicates(subset='cdf')
-        
-        # calculate inverse of cdf to obtain inverse cdf
-        # inversefunction can be used to sample values with the latin hypercube
-        inversefunction = interpolate.interp1d(preproc["cdf"], preproc["support"], kind='cubic', bounds_error=False)
-        
-        ###
-            ### FUNCTION PART 2 --> LATIN HYPERCUBE METRICS
-        ###
-        
-        # sample in 1-dimension with specific simulation length
-        lhs_sampler = stats.qmc.LatinHypercube(1, seed=random_state)
-        lhs_sample = lhs_sampler.random(n=sim_length) 
-
-        # scale the created lhs samples to min and max cdf values
-        lhs_sample_scaled = stats.qmc.scale(lhs_sample, min(preproc["cdf"]), max(preproc["cdf"])).flatten()
-
-        ###
-            ### FUNCTION PART 3 --> CALCULATE LHS SAMPLES
-        ###
-
-        generate_samples = inversefunction(lhs_sample_scaled)
-
-        if visualize_lhs_samples:
-            sns.histplot(generate_samples)
-            plt.title(f"LH-Sample: {attribute_key} - Sample Size: {sim_length}")
-            plt.show()
-            
-        return generate_samples
-    
-    
-    
-    
-    # Weighting and clipping
-    # Amount of density below 0 & above 1
-    def adjust_edgeweight(y_hat):
-        
-        # @https://andrewpwheeler.com/2021/06/07/kde-plots-for-predicted-probabilities-in-python/
-        
-        # if chosen kde bandwidth is not a number, reuturn weights 0 and compute default values
-        if type(_PRED_BANDWIDTH) not in [int, float]:
-            edgeweight = None
-            return edgeweight
-        
-        below_0 = stats.norm.cdf(x=0, loc=y_hat, scale=_PRED_BANDWIDTH)
-        above_1 = 1 - stats.norm.cdf(x=1, loc=y_hat, scale=_PRED_BANDWIDTH)
-        
-        edgeweight = 1 / (1 - below_0 - above_1)
-        
-        return edgeweight
-    
-    
-    
+    _scaler = MinMaxScaler()
     
     #x-axis ranges from 0 and 1 with .001 steps -- is also used for sigmoid accuracy
     # x-axis can be interpreted as sigmoid values between 0 and 1 with above mentioned steps (accuracy)
@@ -959,6 +807,8 @@ if _SIMULATE == True:
     
     _sim_start_time = time.time()
     
+    _adjusted_random_state = _RANDOM_STATE
+
     for _row in tqdm(_SIMULATION_RANGE):
         
         """
@@ -979,123 +829,66 @@ if _SIMULATE == True:
             # --> and safe sampled values for this row in a history
         """
         
-        _uncertain_sample_collection = []
-        _original_sample_collection = [] 
         
-        # sample from uncertain and original kde for input imputation
-        for _key in _uncertain_attributes:
+        # for each increament in the simulated row, a different random state will be used
+        if _adjusted_random_state == None: pass
+        else:  _adjusted_random_state+=1
+        
+        INPUT_COLL_UNCERTAIN = utils.generate_simulation_sample_collection(uncertain_attributes = _uncertain_attributes, 
+                                                                           dataframe_categorical = _DATAFRAME_SIMULATE, 
+                                                                           kde_collection = kde_collection_uncertain, 
+                                                                           monte_carlo = _monte_carlo, 
+                                                                           latin_hypercube = _latin_hypercube, 
+                                                                           standardize_data = _standardize_data, 
+                                                                           datatype_map = datatype_map, 
+                                                                           column_names = _column_names,                                            
+                                                                           simulation_length = _SIMULATION_LENGTH, 
+                                                                           random_state = _adjusted_random_state, 
+                                                                           lhs_mode = _LHS_MODE, 
+                                                                           visualize_lhs_samples = _visualize_lhs_samples, 
+                                                                           lhs_prefix = " Uncertain")
+        
+        
+        # PART 2: COMBINE(IMPUTE) DATAFRAM WITH SAMPLES TO CREATE INPUT
+        
+        _X_Uncertain_INPUT = utils.generate_simulation_inputs(simulation_row = _DATAFRAME_SIMULATE_ROW, 
+                                                              simulation_length = _SIMULATION_LENGTH, 
+                                                              uncertain_attributes = _uncertain_attributes, 
+                                                              sample_collection = INPUT_COLL_UNCERTAIN).iloc[:,:-1]
+        
+        
+        
+        
+        
+        
+        # for each increament in the simulated row, a different random state will be used
+        if _adjusted_random_state == None: pass
+        else:  _adjusted_random_state+=3
+        
+        INPUT_COLL_ORIGINAL = utils.generate_simulation_sample_collection(uncertain_attributes = _uncertain_attributes, 
+                                                                           dataframe_categorical = DATAFRAME_ORIGINAL, 
+                                                                           kde_collection = kde_collection_uncertain, 
+                                                                           monte_carlo = _monte_carlo, 
+                                                                           latin_hypercube = _latin_hypercube, 
+                                                                           standardize_data = _standardize_data, 
+                                                                           datatype_map = datatype_map, 
+                                                                           column_names = _column_names,                                            
+                                                                           simulation_length = _SIMULATION_LENGTH, 
+                                                                           random_state = _adjusted_random_state, 
+                                                                           lhs_mode = _LHS_MODE, 
+                                                                           visualize_lhs_samples = _visualize_lhs_samples, 
+                                                                           lhs_prefix = " Original")
+        
+        
+        # PART 2: COMBINE(IMPUTE) DATAFRAM WITH SAMPLES TO CREATE INPUT
+        
+        _X_ORIGINAL_INPUT = utils.generate_simulation_inputs(simulation_row = _DATAFRAME_SIMULATE_ROW, 
+                                                             simulation_length = _SIMULATION_LENGTH, 
+                                                             uncertain_attributes = _uncertain_attributes, 
+                                                             sample_collection = INPUT_COLL_ORIGINAL).iloc[:,:-1]
+        
+        
 
-            # sample from categorical distribution
-            if datatype_map[_key] == "Categorical":
-
-                # random samples from with respective probabilities
-                _uncertain_categ_sample = utils.categorical_distribution_sample(_DATAFRAME_SIMULATE, _key)
-                _original_categ_sample = utils.categorical_distribution_sample(DATAFRAME_ORIGINAL, _key) 
-
-                
-                # append draws to collection
-                _uncertain_sample_collection.append(_uncertain_categ_sample)
-                _original_sample_collection.append(_original_categ_sample)
-
-            
-
-            # sample from categorical distribution // KDE Distributions
-            elif datatype_map[_key] == "Continuous":
-                
-                
-                if _monte_carlo:
-                    
-                    # resample randomly a new dataset of the underlying kde
-                    _uncertain_sample = kde_collection_uncertain[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-                    _original_sample = kde_collection_original[_key].resample(_SIMULATION_LENGTH, seed=_RANDOM_STATE).flatten()
-        
-            
-                if _latin_hypercube:
-                    
-                    # 1 dimensional latin hypercube sampling
-                    _uncertain_sample = utils.kde_latin_hypercube_sampler(kde_collection_uncertain[_key], 
-                                                                          _SIMULATION_LENGTH, 
-                                                                          _RANDOM_STATE, 
-                                                                          mode=_LHS_MODE, 
-                                                                          visualize_lhs_samples= False,
-                                                                          attribute_key=_key + "//Uncertain").flatten()
-                    
-                    _original_sample = utils.kde_latin_hypercube_sampler(kde_collection_original[_key], 
-                                                                         _SIMULATION_LENGTH, 
-                                                                         _RANDOM_STATE, 
-                                                                         mode=_LHS_MODE, 
-                                                                         visualize_lhs_samples= False,
-                                                                         attribute_key=_key + "//Original").flatten()
-                
-                
-                # if standardize is true and values x are x < 0 or x > 1, then set x respectively to 0 or 1
-                if _standardize_data:
-                    
-                    _uncertain_sample[(_uncertain_sample < 0)] = 0
-                    _uncertain_sample[(_uncertain_sample > 1)] = 1
-                    
-                    _original_sample[(_original_sample < 0)] = 0
-                    _original_sample[(_original_sample > 1)] = 1
-
-
-                _uncertain_sample_collection.append(_uncertain_sample)
-                _original_sample_collection.append(_original_sample)
-            
-            else: 
-                print("Error in datatype_map")
-                sys.exit()
-
-
-
-        _uncertain_sample_collection = pd.DataFrame(_uncertain_sample_collection).transpose()
-        _uncertain_sample_collection.columns = _uncertain_attributes
-
-        _original_sample_collection = pd.DataFrame(_original_sample_collection).transpose()
-        _original_sample_collection.columns = _uncertain_attributes
-        _original_sample_collection.columns = _uncertain_attributes
-    
-    
-        """
-            # step 4: create DATAFRAME for faster simulation (basis input) and replace missing values with sampled ones   
-            # index length of DATAFRAME_MISS_ROW is now equal to number of simulations
-        """
-        
-        _DATAFRAME_MC_FOUNDATION = _DATAFRAME_SIMULATE_ROW.copy().transpose()
-        _DATAFRAME_MC_FOUNDATION = pd.concat([_DATAFRAME_MC_FOUNDATION] * _SIMULATION_LENGTH, ignore_index=True)
-        
-        
-        # basis dataframe used for uncertain kde simulation
-        _DATAFRAME_MC_UNCERTAIN_KDE_SIMULATION = _DATAFRAME_MC_FOUNDATION.copy()
-        
-        
-        # basis dataframe used for original (true) kde simulation
-        _DATAFRAME_MC_ORIGINAL_KDE_SIMULATION = _DATAFRAME_MC_FOUNDATION.copy()
-        
-        
-        # replace the missing values of DATAFRAME_MISS_ROW/ (now MC_SIMULATION) with the created samples 
-        for _col in _uncertain_attributes:
-            
-            _DATAFRAME_MC_UNCERTAIN_KDE_SIMULATION[_col] = _uncertain_sample_collection[_col]
-            _DATAFRAME_MC_ORIGINAL_KDE_SIMULATION[_col] = _original_sample_collection[_col]
-        
-        
-        """
-            step 5: main predictions on collected samples/data
-        """
-        
-        _X_simulation_uncertain = _DATAFRAME_MC_UNCERTAIN_KDE_SIMULATION.iloc[:, 0:-1]
-        
-        _X_simulation_original = _DATAFRAME_MC_ORIGINAL_KDE_SIMULATION.iloc[:, 0:-1]
-
-
-        # calculate Input RMSE for original and uncertain Monte Carlo Input
-        
-        #create an equivalent representation of a original row in monte carlo style of the original dataframe for comparison
-        _original_df_mc_row_input = pd.DataFrame(X_original.loc[_row]).copy().transpose()
-        _original_df_mc_row_input = pd.concat([_original_df_mc_row_input] * _SIMULATION_LENGTH, ignore_index=True)
-        
-        _uncertain_sim_input_rmse = mse(_original_df_mc_row_input, _X_simulation_uncertain, squared=False)
-        _original_sim_input_rmse = mse(_original_df_mc_row_input, _X_simulation_original, squared=False)
 
 
         """
@@ -1104,7 +897,7 @@ if _SIMULATE == True:
         """
         
         # predictions and labels
-        _y_simulation_uncertain_hat = model.predict(_X_simulation_uncertain, verbose=0)
+        _y_simulation_uncertain_hat = model.predict(_X_Uncertain_INPUT, verbose=0)
         
         _y_simulation_uncertain_hat_labels = {
             "softmax_labels" : np.argmax(_y_simulation_uncertain_hat["softmax"], axis=1),
@@ -1144,7 +937,7 @@ if _SIMULATE == True:
             _temp_uncertain_kde = []
             
             for _preds in _y_simulation_uncertain_hat[_activation.replace("_class", "")].transpose():
-                _temp_uncertain_kde.append(stats.gaussian_kde(_preds, bw_method=_PRED_BANDWIDTH, weights=adjust_edgeweight(_preds)))
+                _temp_uncertain_kde.append(stats.gaussian_kde(_preds, bw_method=_PRED_BANDWIDTH, weights=utils.adjust_edgeweight(_preds)))
 
             # to convert lists to dictionary
             _uncertain_simulation_result_kde[_activation] = {_classes[i] : _temp_uncertain_kde[i] for i in range(_unique_outcomes)}
@@ -1242,7 +1035,7 @@ if _SIMULATE == True:
         """
         
         # predictions and labels
-        _y_simulation_original_hat = model.predict(_X_simulation_original, verbose=0)
+        _y_simulation_original_hat = model.predict(_X_ORIGINAL_INPUT, verbose=0)
 
 
         _y_simulation_original_hat_labels = {
@@ -1283,7 +1076,7 @@ if _SIMULATE == True:
             _temp_original_kde = []
             
             for _preds in _y_simulation_original_hat[_activation.replace("_class", "")].transpose():
-                _temp_original_kde.append(stats.gaussian_kde(_preds, bw_method=_PRED_BANDWIDTH, weights=adjust_edgeweight(_preds)))
+                _temp_original_kde.append(stats.gaussian_kde(_preds, bw_method=_PRED_BANDWIDTH, weights=utils.adjust_edgeweight(_preds)))
 
             # to convert lists to dictionary
             _original_simulation_result_kde[_activation] = {_classes[i] : _temp_original_kde[i] for i in range(_unique_outcomes)}
@@ -1442,8 +1235,8 @@ if _SIMULATE == True:
                 "0.7_uncertain_attributes" : _uncertain_attributes,
                 },
             "1_Uncertain Simulation Collection" : {
-                "1.00_x_input_rmse" : _uncertain_sim_input_rmse,
-                "1.01_x_input_stats" : _X_simulation_uncertain.describe(),
+                #"1.00_x_input_rmse" : _uncertain_sim_input_rmse,
+                #"1.01_x_input_stats" : _X_simulation_uncertain.describe(),
                 "1.02_y_simulation_hat" : _y_simulation_uncertain_hat,
                 "1.03_y_simulation_hat_labels" : _y_simulation_uncertain_hat_labels,
                 "1.04_label_frequency" : {"softmax_labels" : pd.Series(_y_simulation_uncertain_hat_labels["softmax_labels"]).value_counts(),
@@ -1458,8 +1251,8 @@ if _SIMULATE == True:
                 "1.12_kde_combined_probability" : _uncertain_kde_sum_prob
                 },
             "2_Original Simulation Collection" : {
-                "0.00_x_input_rmse" : _original_sim_input_rmse,
-                "2.01_x_input_stats" : _X_simulation_original.describe(),
+                #"0.00_x_input_rmse" : _original_sim_input_rmse,
+                #"2.01_x_input_stats" : _X_simulation_original.describe(),
                 "2.02_y_simulation_hat" : _y_simulation_original_hat,
                 "2.03_y_simulation_hat_labels" : _y_simulation_original_hat_labels,
                 "2.04_label_frequency" : {"softmax_labels" : pd.Series(_y_simulation_original_hat_labels["softmax_labels"]).value_counts(),
@@ -1473,22 +1266,11 @@ if _SIMULATE == True:
                 "2.11_kde_upper_bound_probability" : _original_kde_upper_probability,
                 "2.12_kde_combined_probability" : _original_kde_sum_prob
                 },
-            "3_Row_analysis" : {
-                "Explanation" : "Row differences of the uncertain kde simulation from the original kde simulation",
-                "Input_Differences" : _X_simulation_original.describe() - _X_simulation_uncertain.describe(),
-                #"Label_Frequ_diff" : pd.Series(_y_simulation_original_hat_labels).value_counts() - pd.Series(_y_simulation_uncertain_hat_labels).value_counts(),
-                "Sim_Mean_dist" : {"softmax_mean_dist" : np.abs(_y_simulation_original_hat_mean["softmax_mean"] - _y_simulation_uncertain_hat_mean["softmax_mean"]),
-                                   "sigmoid_mean_dist" : np.abs(_y_simulation_original_hat_mean["sigmoid_mean"] - _y_simulation_uncertain_hat_mean["sigmoid_mean"])},
-                "Sim_Std_dist" : {"softmax_std_dist" : np.abs(_y_simulation_original_hat_std["softmax_std"] - _y_simulation_uncertain_hat_std["softmax_std"]),
-                                   "sigmoid_std_dist" : np.abs(_y_simulation_original_hat_std["sigmoid_std"] - _y_simulation_uncertain_hat_std["sigmoid_std"])},
-                "Sim_Max_Density_acivation_dist" : {"softmax_std_dist" : np.abs(np.array(list(_original_max_density_activation["softmax_class"].values())) - np.array(list(_uncertain_max_density_activation["softmax_class"].values()))),
-                                                  "sigmoid_std_dist" : np.abs(np.array(list(_original_max_density_activation["sigmoid_class"].values())) - np.array(list(_uncertain_max_density_activation["sigmoid_class"].values())))},
-                }
             })
 
 
         # simulation history appendix
-        SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.0_Input_RMSE"].append(_uncertain_sim_input_rmse)
+        #SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.0_Input_RMSE"].append(_uncertain_sim_input_rmse)
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.1_Means"].append(_y_simulation_uncertain_hat_mean["softmax_mean"])
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.2_Mean_Labels"].append(_y_simulation_uncertain_hat_mean_label["softmax_mean_label"])       
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.4_Stds"].append(_y_simulation_uncertain_hat_std["softmax_std"])
@@ -1497,7 +1279,7 @@ if _SIMULATE == True:
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.8_Lower_Bound_Probability"].append(_uncertain_kde_lower_probability["softmax_class"])
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Softmax"]["1.1.9_Upper_Bound_Probability"].append(_uncertain_kde_upper_probability["softmax_class"])
         
-        SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.0_Input_RMSE"].append(_uncertain_sim_input_rmse)
+        #SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.0_Input_RMSE"].append(_uncertain_sim_input_rmse)
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.1_Means"].append(_y_simulation_uncertain_hat_mean["sigmoid_mean"])
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.2_Mean_Labels"].append(_y_simulation_uncertain_hat_mean_label["sigmoid_mean_label"])       
         SIMULATION_COLLECTION["1_Uncertain_Simulation"]["Sigmoid"]["1.2.4_Stds"].append(_y_simulation_uncertain_hat_std["sigmoid_std"])
@@ -1508,7 +1290,7 @@ if _SIMULATE == True:
         
         
         # simulation history appendix
-        SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.0_Input_RMSE"].append(_original_sim_input_rmse)
+        #SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.0_Input_RMSE"].append(_original_sim_input_rmse)
         SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.1_Means"].append(_y_simulation_original_hat_mean["softmax_mean"])
         SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.2_Mean_Labels"].append(_y_simulation_original_hat_mean_label["softmax_mean_label"])
         SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.4_Stds"].append(_y_simulation_original_hat_std["softmax_std"])
@@ -1517,7 +1299,7 @@ if _SIMULATE == True:
         SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.8_Lower_Bound_Probability"].append(_original_kde_lower_probability)
         SIMULATION_COLLECTION["2_Original_Simulation"]["Softmax"]["2.1.9_Upper_Bound_Probability"].append(_original_kde_upper_probability)
 
-        SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.0_Input_RMSE"].append(_original_sim_input_rmse)
+        #SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.0_Input_RMSE"].append(_original_sim_input_rmse)
         SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.1_Means"].append(_y_simulation_original_hat_mean["sigmoid_mean"])
         SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.2_Mean_Labels"].append(_y_simulation_original_hat_mean_label["sigmoid_mean_label"])
         SIMULATION_COLLECTION["2_Original_Simulation"]["Sigmoid"]["2.2.4_Stds"].append(_y_simulation_original_hat_std["sigmoid_std"])
@@ -1732,17 +1514,17 @@ if _IMPUTE == True and _SIMULATE == True:
                                                              })
         
         
-        
+        """
         # calculate the Input RMSE between the original DataFrame and the Uncertain DataFrames    
         DATAFRAME_INPUT_ANALYSIS = pd.Series(data={"Mean_Impute_df" : _INPUT_RMSE_MEAN,
                                                    "Mode_Impute_df" : _INPUT_RMSE_MODE,
                                                    "Median_Impute_df" : _INPUT_RMSE_MEDIAN,
                                                    "KNNImp_Impute_df" : _INPUT_RMSE_KNNIMP,
                                                    "IterImp_Impute_df" : _INPUT_RMSE_ITERIMP,
-                                                   "Uncertain_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.0_Input_RMSE"]),
-                                                   "Original_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["2_Original_Simulation"]["2.0_Input_RMSE"])
+                                                   #"Uncertain_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["1_Uncertain_Simulation"]["1.0_Input_RMSE"]),
+                                                   #"Original_Mean_Sim_Input_RMSE" : np.mean(SIMULATION_COLLECTION["2_Original_Simulation"]["2.0_Input_RMSE"])
                                                    }, name="RMSE")
-
+        """
 
 if _save_simulated_results:
     

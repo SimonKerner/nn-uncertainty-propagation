@@ -414,7 +414,7 @@ def generate_simulation_sample_collection(uncertain_attributes, dataframe_catego
                 print("Error in datatype_map")
                 sys.exit()
 
-
+        
 
         sample_collection = pd.DataFrame(sample_collection).transpose()
         sample_collection.columns = uncertain_attributes
