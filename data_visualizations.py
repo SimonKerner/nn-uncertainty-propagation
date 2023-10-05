@@ -498,7 +498,7 @@ def simulation_kde_plot(x_axis, simulation_row_results, y_original, original_met
     
     # Impute Vertical Line
     if True: # _IMPUTE:
-        plt.axvline(x=impute_metrics["ITER_IMPUTE"]["y_hat"][info["0.1_row_id"]], 
+        plt.axvline(x=impute_metrics["KNN_IMPUTE"]["y_hat"][info["0.1_row_id"]], 
                     linewidth=5, alpha=0.4, linestyle = "-", color = "blue", 
                     label="Impute Prediction" + " (" + "IterativeImputer" + ")")
     

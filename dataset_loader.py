@@ -125,7 +125,7 @@ def load_australian():
     
     return df, datatypes
 
-
+"""
 def load_german():
     
     path = get_dataset_path()
@@ -157,7 +157,7 @@ def load_german():
                "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical", "Categorical"]
     
     return df, datatypes
-
+"""
 
 """
 def load_bank():
@@ -233,15 +233,10 @@ def load_dataframe(dataframe_name, standardize_data):
 
     elif dataframe_name == "australian": dataframe, datatypes = load_australian()
     
-    elif dataframe_name == "german": dataframe, datatypes = load_german()  
+    #elif dataframe_name == "german": dataframe, datatypes = load_german()  
     
-<<<<<<< HEAD
-=======
     elif dataframe_name == "students": dataframe, datatypes = load_students()
     
->>>>>>> 18bd758ef291d8166a3ecdfd166323f4fa9281e8
-    #elif dataframe_name == "bank": dataframe, datatypes = load_bank()
-
     else: 
         print("No valid dataset found!")
         sys.exit()

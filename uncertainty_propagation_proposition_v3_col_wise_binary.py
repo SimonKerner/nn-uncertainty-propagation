@@ -77,8 +77,6 @@ _results_path = os.path.join(os.getcwd(), 'sim_results')
             -[3] australian - attributes are mixed between continious and discret
     
         following all the different settings for this simulation run can be found
-            -dataset = "choose dataset"
-            -standardize_dataset = "used for standardizing the dataset -- values between 0 and 1 -- minmax"
 """
 ##########################################################################################################################
 
@@ -87,18 +85,13 @@ _RANDOM_STATE = 42
 
 
 #choose working dataset: choose one of the datasets above
-<<<<<<< HEAD
-_dataset = "climate_simulation"
-_simulate_test_set = True
-=======
 _dataset = "wdbc"
 _simulate_test_set = False
->>>>>>> 18bd758ef291d8166a3ecdfd166323f4fa9281e8
 
 
-# other constants
-_INIT_DATA_BANDWIDTH = None
-_PRED_BANDWIDTH = None # --> if None (default) "scott" is used
+# other constants for KDE settings
+_INIT_DATA_BANDWIDTH = None # --> KDE bandwidth for initial datasets --> if None (default) "scott" is used
+_PRED_BANDWIDTH = None # KDE bw for predictions --> if None (default) "scott" is used
 
 
 # further dataset settings
@@ -136,7 +129,7 @@ _normalize_kde= True # setting this to false could break the plots
 # deterministic imputation of missing values
 _IMPUTE = True
 
-# stochastic imputation (simulation) of uncertain data
+# simulation of uncertain data
 _SIMULATE = True
 
 # mode of simulation // Monte Carlo Sampling or Latin Hypercube Sampling available
@@ -148,8 +141,8 @@ _visualize_lhs_samples = False
 
 # further Simulation metrics
 _SIMULATION_LENGTH = 10000
-_SIMULATION_RANGE = None
-#_SIMULATION_RANGE = range(0, 5, 1) # if set to None -- all rows will be simulated
+#_SIMULATION_RANGE = None
+_SIMULATION_RANGE = range(0, 2, 1) # if set to None -- all rows will be simulated
 
 
 _simulation_visualizations = True
@@ -161,7 +154,7 @@ _load_results_id = 0
 
 
 # revove old images in image folder
-dvis.remove_images()
+#dvis.remove_images()
 
 ##########################################################################################################################
 """
@@ -172,13 +165,7 @@ DATAFRAME_ORIGINAL, datatype_map = load_dataframe(_dataset, _standardize_data)
 _column_names = DATAFRAME_ORIGINAL.columns
 _unique_outcomes = len(DATAFRAME_ORIGINAL.Outcome.unique())
 
-<<<<<<< HEAD
-   
-=======
 
-    
-
->>>>>>> 18bd758ef291d8166a3ecdfd166323f4fa9281e8
 ##########################################################################################################################
 """
     # visiualize true underlying data of Dataframe 
@@ -218,12 +205,7 @@ _X_original_train, _X_original_test, _y_original_train, _y_original_test = train
                                                                                             test_size=0.25,
                                                                                             random_state=_RANDOM_STATE)
 
-print("Dataset", _dataset)
-print("_X_original_train", len(_X_original_train))
-print("_X_original_test", len(_X_original_test))
-print("_y_original_train", len(_y_original_train))
-print("_y_original_test", len(_y_original_test))
-sys.exit()
+
 ##########################################################################################################################
 """
         # create standard vanilla feed forward feural network
@@ -359,7 +341,7 @@ if _visiualize_data:
 """
 
 """
-        various imputation methodsfor missing data for each simulation run can be tested
+        various imputation methods for missing data for each simulation run can be tested
         - if True (with imputation):
             -choose between KDE_imputer (self), SimpleImputer and KNN_Imputer
         - if False (without imputation): 
@@ -367,14 +349,14 @@ if _visiualize_data:
         
         
         > Further explanation:
-            - with imputation: This method can be used to fill missing values inside of the dataset 
+            - with imputation: This method can be used to replace missing values inside of the dataset 
                                before further usage
                 - uncertainties of miss data will be imputed with values from the above methods 
                                (can be considered deterministic)
-                - withoud imputation:
-                    - this method will not fill the missing values of the dataset, instead it can be 
-                      used for stochastic simulation, with MonteCarlo methods - propagation of uncertainties 
-                      is guranteed 
+            - with simulation:
+                - this method will not fill the missing values of the dataset, instead it can be 
+                  used for stochastic simulation, with MonteCarlo methods - propagation of uncertainties 
+                  is guranteed 
 """
 ##########################################################################################################################
 ##########################################################################################################################
@@ -427,37 +409,20 @@ if _IMPUTE:
     _knn_end_sample_time = time.time() - _knn_start_sample_time
     
     
-    """
-        # multiple imputation technique 
-    """
-    _iter_start_sample_time = time.time()
-    
-    _iter_imp = IterativeImputer(max_iter=10, random_state=_RANDOM_STATE)
-    _DATAFRAME_ITER_IMPUTE = pd.DataFrame(_iter_imp.fit_transform(DATAFRAME_MISS.iloc[:,:-1].copy()), columns=_column_names[:-1], index=X_original.index)
-    _DATAFRAME_ITER_IMPUTE = _DATAFRAME_ITER_IMPUTE.merge(DATAFRAME_ORIGINAL["Outcome"], left_index=True, right_index=True)
-
-    _iter_end_sample_time = time.time() - _iter_start_sample_time
-    
-    time.sleep(1)
-    
-    
     _DATAFRAME_IMPUTE_COLLECTION = {"MEAN_IMPUTE" : _DATAFRAME_MEAN_IMPUTE,
                                     "MEDIAN_IMPUTE" : _DATAFRAME_MEDIAN_IMPUTE,
                                     "MODE_IMPUTE" : _DATAFRAME_MODE_IMPUTE,
-                                    "KNN_IMPUTE" : _DATAFRAME_KNN_IMPUTE,
-                                    "ITER_IMPUTE" : _DATAFRAME_ITER_IMPUTE}
+                                    "KNN_IMPUTE" : _DATAFRAME_KNN_IMPUTE}
     
     _IMPUTE_TIMES = {"MEAN_IMPUTE" : _mean_end_sample_time,
                      "MEDIAN_IMPUTE" : _median_end_sample_time,
                      "MODE_IMPUTE" : _mode_end_sample_time,
-                     "KNN_IMPUTE" : _knn_end_sample_time,
-                     "ITER_IMPUTE" : _iter_end_sample_time}
+                     "KNN_IMPUTE" : _knn_end_sample_time}
     
     _IMPUTE_RMSE = {"MEAN_IMPUTE" : mse(DATAFRAME_ORIGINAL, _DATAFRAME_MEAN_IMPUTE, squared=False),
                      "MEDIAN_IMPUTE" : mse(DATAFRAME_ORIGINAL, _DATAFRAME_MEDIAN_IMPUTE, squared=False),
                      "MODE_IMPUTE" : mse(DATAFRAME_ORIGINAL, _DATAFRAME_MODE_IMPUTE, squared=False),
-                     "KNN_IMPUTE" :  mse(DATAFRAME_ORIGINAL, _DATAFRAME_KNN_IMPUTE, squared=False),
-                     "ITER_IMPUTE" : mse(DATAFRAME_ORIGINAL, _DATAFRAME_ITER_IMPUTE, squared=False)}
+                     "KNN_IMPUTE" :  mse(DATAFRAME_ORIGINAL, _DATAFRAME_KNN_IMPUTE, squared=False)}
     
 
     print("\nPredictions for dataset with uncertainties and imputed values:")
@@ -779,9 +744,8 @@ if _SIMULATE:
     
         
     
-    
         
-    if _visualize_simulated_predictions:
+    if _visualize_simulated_predictions and _SIMULATION_RANGE==None and len(y_original[_SIMULATION_RANGE].unique()) > 1:
         
         image_path = os.path.join(os.getcwd(), 'images')
         
@@ -875,7 +839,6 @@ else:
                                                "Mode_Impute_df" : impute_metrics["MODE_IMPUTE"]["input_rmse"],
                                                "Median_Impute_df" : impute_metrics["MEDIAN_IMPUTE"]["input_rmse"],
                                                "KNNImp_Impute_df" : impute_metrics["KNN_IMPUTE"]["input_rmse"],
-                                               "IterImp_Impute_df" : impute_metrics["ITER_IMPUTE"]["input_rmse"],
                                                "Uncertain_Mean_Sim_Input_RMSE" : SIMULATION_MEAN_RESULTS["Uncertain_Simulation_Input_RMSE"],
                                                "Original_Mean_Sim_Input_RMSE" : SIMULATION_MEAN_RESULTS["Original_Simulation_Input_RMSE"],
                                                }, name="RMSE")
@@ -888,11 +851,10 @@ else:
                                                  [impute_metrics["MODE_IMPUTE"]["sample_time"], impute_metrics["MODE_IMPUTE"]["pred_time"]],
                                                  [impute_metrics["MEDIAN_IMPUTE"]["sample_time"], impute_metrics["MEDIAN_IMPUTE"]["pred_time"]],
                                                  [impute_metrics["KNN_IMPUTE"]["sample_time"], impute_metrics["KNN_IMPUTE"]["pred_time"]],
-                                                 [impute_metrics["ITER_IMPUTE"]["sample_time"], impute_metrics["ITER_IMPUTE"]["pred_time"]],
                                                  [_sim_mean_times["Uncertain_Sample_Time"], _sim_mean_times["Uncertain_Prediction_Time"]],
                                                  [_sim_mean_times["Original_Sample_Time"], _sim_mean_times["Original_Prediction_Time"]]
                                                  ], 
-                                           index=["Original Model", "Mean Imputation", "Mode_Imputation", "Median_Imputation", "KNN-Imputation", "Iter. Imputation", "Uncertain_Simulation", "Original_Simulation"], 
+                                           index=["Original Model", "Mean Imputation", "Mode_Imputation", "Median_Imputation", "KNN-Imputation", "Uncertain_Simulation", "Original_Simulation"], 
                                            columns=["Sample Time", "Prediction Time"])
         
     
@@ -902,20 +864,14 @@ else:
                                   
                                   "original_mean_metrics" : {
                                           "metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mean_Labels"], print_report=False),
-                                          "roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mean"]),
-                                          "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mean"]),
                                           },
                                   
                                   "original_median_metrics" : {
-                                          "metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Median_Labels"], print_report=False),
-                                          "roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Median"]),
-                                          "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Median"]),
+                                          "metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Median_Labels"], print_report=False),                       
                                           },
                                   
                                   "original_mode_metrics" : {
                                           "metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mode_Labels"], print_report=False),
-                                          "roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mode"]),
-                                          "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mode"]),
                                           },
                                   
                                   "original_probability_metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Probability_Labels"], print_report=False),
@@ -926,25 +882,47 @@ else:
                                   
                                   "uncertain_mean_metrics" : {
                                           "metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mean_Labels"], print_report=False),
-                                          "roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mean"]),
-                                          "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mean"]),
                                           },
                                   
                                   "uncertain_median_metrics" : {
                                           "metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Median_Labels"], print_report=False),
-                                          "roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Median"]),
-                                          "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Median"]),
                                           },
                                     
                                   "uncertain_mode_metrics" : {
                                           "metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mode_Labels"], print_report=False),
-                                          "roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mode"]),
-                                          "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mode"]),
                                           },
         
                                   "uncertain_probability_metrics" : utils.create_metrics(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Probability_Labels"], print_report=False)
                                   }  
       
+    
+    if len(y_original[_SIMULATION_RANGE].unique()) > 1:
+    
+        SIMULATION_OUTPUT_ANALYSIS["original_mean_metrics"] = {"roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mean"]),
+                                                               "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mean"])}
+        
+        
+        SIMULATION_OUTPUT_ANALYSIS["original_median_metrics"] = {"roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Median"]),
+                                                                 "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Median"]),}
+        
+        
+        SIMULATION_OUTPUT_ANALYSIS["original_median_metrics"] = {"roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mode"]),
+                                                                 "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Original_Mode"])}
+        
+        
+        SIMULATION_OUTPUT_ANALYSIS["uncertain_mean_metrics"] = {"roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mean"]),
+                                                                "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mean"])}
+        
+        
+        SIMULATION_OUTPUT_ANALYSIS["uncertain_median_metrics"] = {"roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Median"]),
+                                                                  "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Median"])}
+        
+        
+        SIMULATION_OUTPUT_ANALYSIS["uncertain_mode_metrics"] = {"roc_auc" : roc_auc_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mode"]),
+                                                                "prc_auc" : average_precision_score(y_original[_SIMULATION_RANGE], SIMULATION_MEAN_RESULTS["Uncertain_Mode"])}
+        
+    
+    
     
 
 if _save_simulated_results:
