@@ -87,8 +87,13 @@ _RANDOM_STATE = 42
 
 
 #choose working dataset: choose one of the datasets above
+<<<<<<< HEAD
 _dataset = "climate_simulation"
 _simulate_test_set = True
+=======
+_dataset = "wdbc"
+_simulate_test_set = False
+>>>>>>> 18bd758ef291d8166a3ecdfd166323f4fa9281e8
 
 
 # other constants
@@ -108,9 +113,9 @@ _visualize_simulated_predictions = True
 
 
 # train or load model
-_train_model = False
+_train_model = True
 _save_new_model = False
-_load_old_model = True
+_load_old_model = False
 
 
 # load uncertain dataset // if True, an already created one will be loaded
@@ -150,7 +155,7 @@ _SIMULATION_RANGE = None
 _simulation_visualizations = True
 
 
-_save_simulated_results = True
+_save_simulated_results = False
 _load_simulated_results = False
 _load_results_id = 0
 
@@ -167,7 +172,13 @@ DATAFRAME_ORIGINAL, datatype_map = load_dataframe(_dataset, _standardize_data)
 _column_names = DATAFRAME_ORIGINAL.columns
 _unique_outcomes = len(DATAFRAME_ORIGINAL.Outcome.unique())
 
+<<<<<<< HEAD
    
+=======
+
+    
+
+>>>>>>> 18bd758ef291d8166a3ecdfd166323f4fa9281e8
 ##########################################################################################################################
 """
     # visiualize true underlying data of Dataframe 
@@ -207,7 +218,12 @@ _X_original_train, _X_original_test, _y_original_train, _y_original_test = train
                                                                                             test_size=0.25,
                                                                                             random_state=_RANDOM_STATE)
 
-
+print("Dataset", _dataset)
+print("_X_original_train", len(_X_original_train))
+print("_X_original_test", len(_X_original_test))
+print("_y_original_train", len(_y_original_train))
+print("_y_original_test", len(_y_original_test))
+sys.exit()
 ##########################################################################################################################
 """
         # create standard vanilla feed forward feural network
@@ -502,86 +518,7 @@ if _IMPUTE:
         plt.show()       
         
     
-    
 
-
-    
-"""    
-def categorical_latin_hypercube_sampler(dataframe, key, sim_length, random_state):
-    
-    
-    
-    
-    dataframe = DATAFRAME_ORIGINAL 
-    key = "Attribute: 4"
-    sim_length=1000000#_SIMULATION_LENGTH
-    random_state = _RANDOM_STATE
-    
-    # get frame column wit categorical data 
-    column = dataframe.loc[:,key]
-    
-    # get unique values and normalize to probabilities // nan values get deleted
-    unique = column.value_counts(normalize=True).sort_index()
-    
-    # get sorted categories & probabilities
-    categories = np.array(list(unique.index))
-    probabilities = unique.values
-    
-    
-    # create cummulative probabilities
-    cum_probs = np.cumsum(probabilities)
-    
-    # TODO
-
-
-    # sample in 1-dimension with specific simulation length
-    lhs_sampler = stats.qmc.LatinHypercube(1, seed=random_state)
-    lhs_sample = lhs_sampler.random(n=sim_length) 
-
-    # scale the created lhs samples to min and max cdf values
-    lhs_sample_scaled = stats.qmc.scale(lhs_sample, min(cum_probs), max(cum_probs)).flatten()
-
-    # create a histogram, where the edges of the bins are corresponding to the cummulative probabilities
-    # fill in with scaled lhs samples
-    
-    
-    
-    hist, _ = np.histogram(column, np.linspace(0, 5, 20))
-
-    bin_midpoints = (bins[:-1] + bins[1:])/2
-    
-
-
-    
-    value_bins = np.searchsorted(cum_probs, lhs_sample_scaled)
-
-    random_from_cdf = bin_midpoints[value_bins]
-    
-    plt.hist(random_from_cdf, density=True)
-
-
-    plt.hist(column, density=True) 
-    
-    
-        
-    return None#generate_samples
-"""     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
     
 
 ##########################################################################################################################
