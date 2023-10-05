@@ -205,7 +205,7 @@ def load_dataframe(dataframe_name, standardize_data):
     
     elif dataframe_name == "german": dataframe, datatypes = load_german()  
     
-    elif dataframe_name == "bank": dataframe, datatypes = load_bank()
+    #elif dataframe_name == "bank": dataframe, datatypes = load_bank()
 
     else: 
         print("No valid dataset found!")

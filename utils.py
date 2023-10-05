@@ -228,10 +228,11 @@ def kde_latin_hypercube_sampler(kde_collection, sim_length, random_state, mode="
 def categorical_latin_hypercube_sampler(dataframe, key, sim_length, random_state):
     
     """
-    dataframe = DATAFRAME_ORIGINAL 
+    import dataset_loader
+    dataframe = dataset_loader.load_dataframe("australian", standardize_data=True)[0]
     key = "Attribute: 4"
     sim_length=100#_SIMULATION_LENGTH
-    random_state = _RANDOM_STATE
+    random_state = 42
     """
     
     # get frame column wit categorical data 
@@ -258,7 +259,7 @@ def categorical_latin_hypercube_sampler(dataframe, key, sim_length, random_state
     value_bins = np.searchsorted(cum_probs, lhs_sample)
     
     # get corresponding samples from categories list
-    cat_lhs_samples = categories[value_bins]
+    cat_lhs_samples = categories[value_bins].flatten()
     
     """
     # visual comparison
@@ -281,10 +282,11 @@ def categorical_latin_hypercube_sampler(dataframe, key, sim_length, random_state
 def categorical_distribution_sample(dataframe, key, sim_length, random_state):
     
     """
-    dataframe = DATAFRAME_ORIGINAL 
+    import dataset_loader
+    dataframe = dataset_loader.load_dataframe("australian", standardize_data=True)[0]
     key = "Attribute: 4"
-    sim_length=_SIMULATION_LENGTH
-    random_state = _RANDOM_STATE
+    sim_length=100#_SIMULATION_LENGTH
+    random_state = 42
     """
     
     # get frame column wit categorical data 
@@ -415,7 +417,7 @@ def generate_simulation_sample_collection(uncertain_attributes, dataframe_catego
                 sys.exit()
 
 
-
+        
         sample_collection = pd.DataFrame(sample_collection).transpose()
         sample_collection.columns = uncertain_attributes
 

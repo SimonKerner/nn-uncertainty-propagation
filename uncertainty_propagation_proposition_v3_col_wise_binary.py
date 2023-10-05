@@ -87,8 +87,8 @@ _RANDOM_STATE = 42
 
 
 #choose working dataset: choose one of the datasets above
-_dataset = "bank-additional"
-_simulate_test_set = False
+_dataset = "climate_simulation"
+_simulate_test_set = True
 
 
 # other constants
@@ -119,7 +119,7 @@ _create_dataframe_miss = False
 
 # metrics for new uncertain dataframe creation // "static" (amount of values in each row) // "percentage" (value between 0 and 1, randomly)
 _DELETE_MODE = "static"     
-_MISS_RATE = 15
+_MISS_RATE = 2
 
 
 # Visual KDE_VALUES of each column of a data set (these will be used for continious sampling) 
@@ -129,25 +129,25 @@ _normalize_kde= True # setting this to false could break the plots
 
 
 # deterministic imputation of missing values
-_IMPUTE = False
+_IMPUTE = True
 
 # stochastic imputation (simulation) of uncertain data
-_SIMULATE = False
+_SIMULATE = True
 
 # mode of simulation // Monte Carlo Sampling or Latin Hypercube Sampling available
-_monte_carlo = True
-_latin_hypercube = False
+_monte_carlo = False
+_latin_hypercube = True
 _LHS_MODE = "fast" # makes differnce in cdf computation // recomended -> fast
 _visualize_lhs_samples = False
 
 
 # further Simulation metrics
-_SIMULATION_LENGTH = 100000
+_SIMULATION_LENGTH = 10000
 _SIMULATION_RANGE = None
 #_SIMULATION_RANGE = range(0, 5, 1) # if set to None -- all rows will be simulated
 
 
-_simulation_visualizations = False
+_simulation_visualizations = True
 
 
 _save_simulated_results = True
@@ -156,7 +156,7 @@ _load_results_id = 0
 
 
 # revove old images in image folder
-#dvis.remove_images()
+dvis.remove_images()
 
 ##########################################################################################################################
 """
@@ -168,9 +168,6 @@ _column_names = DATAFRAME_ORIGINAL.columns
 _unique_outcomes = len(DATAFRAME_ORIGINAL.Outcome.unique())
 
    
-DATAFRAME_ORIGINAL.hist()
-    
-sys.exit()
 ##########################################################################################################################
 """
     # visiualize true underlying data of Dataframe 
@@ -322,7 +319,7 @@ original_metrics["original_statistics"] = utils.create_metrics(y_original, origi
         # This contains missing data with a specific missing rate in each row
 """
 
-
+# dataframe original corresponds to x test in this scenario
 DATAFRAME_MISS = load_miss_dataframe(_dataset, DATAFRAME_ORIGINAL, _MISS_RATE, _DELETE_MODE, _RANDOM_STATE,
                                      _load_dataframe_miss, _create_dataframe_miss, _simulate_test_set)
 
@@ -849,6 +846,8 @@ if _SIMULATE:
         
     if _visualize_simulated_predictions:
         
+        image_path = os.path.join(os.getcwd(), 'images')
+        
         # reference found in data_visualizations 
         names = ["Orig_Mean", "Orig_Median", "Orig_Mode", "Uncert_Mean", "Uncert_Median", "Uncertain_Mode"]
         
@@ -878,10 +877,9 @@ if _SIMULATE:
         plt.xlabel('false positive rate')
         plt.ylabel('true positive rate')
         plt.title('Receiver Operator Characteristic')
-        
-            
         plt.legend(loc = "lower right", fontsize=9)
-        plt.tight_layout()   
+        plt.tight_layout()  
+        plt.savefig(os.path.join(image_path, 'Simulated Receiver Operator Characteristic'))
         plt.show()
           
         
@@ -902,6 +900,7 @@ if _SIMULATE:
         plt.title('Precision Recall Curve')
         plt.legend(loc = "lower left", fontsize=9)
         plt.tight_layout()
+        plt.savefig(os.path.join(image_path, 'Simulated Precision Recall Curve'))
         plt.show()
     
 
